@@ -4,7 +4,7 @@ id: dragon-ball-sparking-zero-access
 name: "Sparking Zero Access"
 description: "Screen reader accessibility mod for DRAGON BALL: Sparking! ZERO"
 author: Access Forge
-version: "0.1.0"
+version: "1.0.0"
 source: github:AccessForge/SparkingZeroAccess
 
 game:
