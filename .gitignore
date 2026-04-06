@@ -1,0 +1,39 @@
+# Claude Code local settings
+.claude/
+
+# Build output
+bin/
+obj/
+
+# Decompiled game code (large, user-specific)
+decompiled/
+
+# OS files
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# IDE
+.vs/
+.vscode/
+*.user
+*.suo
+
+# Internal notes (not part of template)
+docs/claude-md-improvements.md
+
+# Local files
+age-of-decadence-analyse.txt
+nul
+
+# Build artifacts
+*.o
+*.a
+speech_bridge/lua-5.4.7/
+speech_bridge/lua-5.4.7.tar.gz
+speech_bridge/UniversalSpeech/
+speech_bridge/*.dll
+
+# Zips (except deps/)
+*.zip
+!deps/*.zip

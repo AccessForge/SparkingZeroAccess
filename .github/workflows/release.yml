@@ -1,0 +1,61 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (e.g. 1.0.0)"
+        required: true
+        type: string
+
+jobs:
+  release:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Update version in manifest
+        shell: bash
+        run: |
+          sed -i 's/^version: .*/version: "${{ inputs.version }}"/' accessforge.yml
+          cat accessforge.yml
+
+      - name: Commit version bump (if changed)
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add accessforge.yml
+          if git diff --cached --quiet; then
+            echo "Version already ${{ inputs.version }}, no commit needed"
+          else
+            git commit -m "Release v${{ inputs.version }}"
+            git push
+          fi
+
+      - name: Install AccessForge
+        shell: bash
+        run: |
+          gh release download --repo AccessForge/AccessForge --pattern "AccessForge.exe" --dir .
+          chmod +x AccessForge.exe
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Package mod
+        shell: bash
+        run: |
+          mv SparkingZeroAccess dist
+          ./AccessForge.exe package
+
+      - name: Create GitHub Release
+        shell: bash
+        run: |
+          gh release create "v${{ inputs.version }}" \
+            "dragon-ball-sparking-zero-access-${{ inputs.version }}.zip" \
+            --title "v${{ inputs.version }}" \
+            --generate-notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

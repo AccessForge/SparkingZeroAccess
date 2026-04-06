@@ -1,0 +1,26 @@
+spec: 1
+
+id: dragon-ball-sparking-zero-access
+name: "Sparking Zero Access"
+description: "Screen reader accessibility mod for DRAGON BALL: Sparking! ZERO"
+author: Access Forge
+version: "0.1.0"
+source: github:AccessForge/SparkingZeroAccess
+
+game:
+  name: "DRAGON BALL: Sparking! ZERO"
+  store:
+    steam: 1790600
+
+loader:
+  name: ue4ss
+
+release:
+  asset: "dragon-ball-sparking-zero-access-{version}.zip"
+
+dependencies:
+  - name: UTOC Signature Bypass
+    type: patch
+    source: url:https://raw.githubusercontent.com/AccessForge/SparkingZeroAccess/main/deps
+    asset: "utoc-bypass.zip"
+    version: "1.0.0"

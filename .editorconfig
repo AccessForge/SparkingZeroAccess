@@ -1,0 +1,66 @@
+# EditorConfig - consistent code formatting across editors
+# https://editorconfig.org
+#
+# This file ensures that everyone who opens the code sees the same
+# formatting, regardless of their editor (Visual Studio, VS Code, Rider, etc.)
+# Most editors read this file automatically - no plugin needed.
+
+# Top-most EditorConfig file
+root = true
+
+# Default settings for all files
+[*]
+indent_style = space
+indent_size = 4
+end_of_line = crlf
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+# C# files (Unity/MelonLoader mods)
+[*.cs]
+indent_size = 4
+# Braces on their own line (Allman style - C# standard)
+csharp_new_line_before_open_brace = all
+csharp_new_line_before_else = true
+csharp_new_line_before_catch = true
+csharp_new_line_before_finally = true
+# Prefer explicit types for clarity
+csharp_style_var_for_built_in_types = false:suggestion
+csharp_style_var_when_type_is_apparent = true:suggestion
+# Organize usings
+dotnet_sort_system_directives_first = true
+
+# XML and project files
+[*.{xml,csproj,props,targets}]
+indent_size = 2
+
+# Markdown documentation
+[*.md]
+trim_trailing_whitespace = false
+indent_size = 2
+
+# JSON files
+[*.json]
+indent_size = 2
+
+# PowerShell scripts
+[*.ps1]
+indent_size = 4
+
+# Python (for Godot mods or tools)
+[*.py]
+indent_size = 4
+
+# GDScript (Godot)
+[*.gd]
+indent_style = tab
+indent_size = 4
+
+# C++ (Unreal Engine or custom engines)
+[*.{cpp,h,hpp,cc}]
+indent_size = 4
+
+# YAML (config files)
+[*.{yml,yaml}]
+indent_size = 2
