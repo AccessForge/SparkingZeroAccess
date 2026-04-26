@@ -49,6 +49,8 @@ local _timerStartAnnounced = false -- have we announced the initial time limit
 -- Result screen state
 local _resultAnnounced = false  -- have we announced the result screen
 local _resultResetCallback = nil -- callback to trigger full reset when result screen closes
+local _cachedResultWidget = nil -- live ref to the visible+Transient result widget once found
+local _resultMissUntil = 0      -- throttle for negative FindAllOf results during battle
 
 
 -- Opponent tracking (keyed by pawn path)
@@ -536,32 +538,52 @@ local function ReadTextBlock(textBlocks, parentPath, targetName)
     return nil
 end
 
+--- Find the visible+Transient result widget. Caches the ref once found and
+--- only re-runs FindAllOf when the cached ref dies, becomes hidden, or after
+--- a 500ms negative-cache window. Saves a full GUObjectArray walk per tick
+--- during the multi-minute period a battle is active.
+local function GetVisibleResultWidget()
+    if _cachedResultWidget and IsValidRef(_cachedResultWidget) then
+        local visOk, vis = pcall(TryCall, _cachedResultWidget, "IsVisible")
+        if visOk and vis then
+            return _cachedResultWidget
+        end
+    end
+    _cachedResultWidget = nil
+
+    if os.clock() < _resultMissUntil then return nil end
+
+    local ok, results = pcall(FindAllOf, "WBP_GRP_BS_Result_03_DP_C")
+    if ok and results then
+        for _, r in ipairs(results) do
+            local pok, path = pcall(function() return r:GetFullName() end)
+            if pok and path and path:find("Transient", 1, true) then
+                local visOk, vis = pcall(TryCall, r, "IsVisible")
+                if visOk and vis then
+                    _cachedResultWidget = r
+                    return r
+                end
+            end
+        end
+    end
+    _resultMissUntil = os.clock() + 0.5
+    return nil
+end
+
 --- Poll for result screen (WBP_GRP_BS_Result_03_DP_C becomes visible).
 --- Announces player level, rank up, rewards, win streak.
 function Battle.PollResult(Speak, SpeakQueued)
     if _resultAnnounced then return end
     if not _maxPlayerHP then return end
 
-    -- Gate: only read when the result widget is visible
-    local ok, results = pcall(FindAllOf, "WBP_GRP_BS_Result_03_DP_C")
-    if not ok or not results then return end
+    local resultWidget = GetVisibleResultWidget()
+    if not resultWidget then return end
 
-    local resultVisible = false
-    local resultPath = nil
-    for _, r in ipairs(results) do
-        local pok, path = pcall(function() return r:GetFullName() end)
-        if pok and path and path:find("Transient", 1, true) then
-            local visOk, vis = pcall(TryCall, r, "IsVisible")
-            if visOk and vis then
-                resultVisible = true
-                -- Extract instance ID (e.g. "WBP_GRP_BS_Result_03_DP_C_2147449007")
-                -- to scope TextBlock reads to this specific widget
-                resultPath = path:match("(WBP_GRP_BS_Result_03_DP_C_%d+)")
-                break
-            end
-        end
+    local resultPath
+    do
+        local pok, path = pcall(function() return resultWidget:GetFullName() end)
+        resultPath = pok and path and path:match("(WBP_GRP_BS_Result_03_DP_C_%d+)") or nil
     end
-    if not resultVisible then return end
 
     -- Result widget is visible — scan TextBlocks for data.
     -- Rewards populate AFTER the result panel appears, so keep retrying
@@ -675,6 +697,8 @@ function Battle.Reset()
     _timerDigitImgs = nil
     _timerDigitParents = nil
     _infiniteImg = nil
+    _cachedResultWidget = nil
+    _resultMissUntil = 0
     _lastTimerSeconds = nil
     _announcedTimerMarks = {}
     _timerStartAnnounced = false

@@ -49,6 +49,7 @@ local lastScreenContext = nil -- "team", "roster", "skilllist", "roomid", or nil
 local teamSlotPollFrames = 0 -- counts frames waiting for bubble to appear
 local roomIdDigitRefs = {}   -- cached TXT_Num TextBlock refs per IDPanel
 local lastCaptionRef = nil   -- cached TextBlock/RichTextBlock ref for caption polling
+local focusEmptyScanStreak = 0 -- consecutive ticks the slow-path scan returned nil
 
 -- Read TXT_GuideMessage from the main menu base widget
 local function ReadGuideMessage()
@@ -630,6 +631,7 @@ local function PollFocus()
             lastSpokenLabel = nil
             lastMatchedLabelWidget = nil
         end
+        focusEmptyScanStreak = 0
         return
     end
 
@@ -691,13 +693,24 @@ local function PollFocus()
         end
     end
 
-    -- Slow path: single FindAllOf("UserWidget") scan
+    -- Slow path: single FindAllOf("UserWidget") scan.
+    -- Throttle: after 6 consecutive empty scans (~100ms) drop to 1-in-6 cadence
+    -- so we don't burn 60Hz GUObjectArray walks on screens that genuinely have
+    -- no focusable widget (cutscene fades, animations, brief dialog gaps).
+    -- Reset to full cadence the moment focus reappears.
+    if focusEmptyScanStreak >= 6 and (focusEmptyScanStreak % 6) ~= 0 then
+        focusEmptyScanStreak = focusEmptyScanStreak + 1
+        return
+    end
+
     local focused = ScanForFocus()
     if focused then
+        focusEmptyScanStreak = 0
         OnWidgetFocused(focused)
         return
     end
 
+    focusEmptyScanStreak = focusEmptyScanStreak + 1
     -- Nothing focused
     if lastFocusedName ~= nil then
         lastFocusedName = nil
@@ -723,6 +736,7 @@ local function ResetStaleState()
     lastOptionsTip = nil
     lastCharaName = nil
     lastCaptionRef = nil
+    focusEmptyScanStreak = 0
     teamSlotPollFrames = 0
     roomIdDigitRefs = {}
     TeamOV.InvalidateCache()
@@ -731,15 +745,29 @@ local function ResetStaleState()
     Shop.Reset()
 end
 
--- Quick world liveness check — if this fails, we're in a transition
+-- Quick world liveness check — if this fails, we're in a transition.
+-- GameInstance is a process-lifetime singleton, so we cache it and only
+-- re-fetch when IsValidRef reports the cached ref is dead. This avoids a
+-- full GUObjectArray scan every loop tick (previously 120/sec across both
+-- loops).
+local _cachedGameInstance = nil
+
 local function IsWorldAlive()
+    if _cachedGameInstance and IsValidRef(_cachedGameInstance) then
+        return true
+    end
+    _cachedGameInstance = nil
     local ok, gi = pcall(FindFirstOf, "GameInstance")
-    return ok and gi ~= nil
+    if ok and gi then
+        _cachedGameInstance = gi
+        return true
+    end
+    return false
 end
 
 local function StartFocusLoop()
     LoopAsync(16, function()
-        if not readerEnabled or isTransitioning or not IsWorldAlive() then
+        if not readerEnabled or Trackers.IsInTransition() or not IsWorldAlive() then
             focusLoopHeartbeat = os.clock()
             return false
         end
@@ -754,8 +782,13 @@ local function StartFocusLoop()
 end
 
 local function StartPollLoop()
-    LoopAsync(16, function()
-        if not readerEnabled or isTransitioning or not IsWorldAlive() then
+    -- Slow loop: dialogs, screen changes, battle HUD, cutscene text, shop categories, etc.
+    -- These detect state changes on the game's timeline, not on user input, so 100ms
+    -- is more than tight enough for announcements (HP thresholds, integer-second timer,
+    -- dialog appearance) without burning 60Hz of FindAllOf/FindFirstOf scans.
+    -- Focus tracking is on a separate 16ms loop for screen-reader responsiveness.
+    LoopAsync(100, function()
+        if not readerEnabled or Trackers.IsInTransition() or not IsWorldAlive() then
             pollLoopHeartbeat = os.clock()
             return false
         end
@@ -832,22 +865,30 @@ Battle.SetResetCallback(function()
     ResetStaleState()
     SkillList.Reset()
     TeamOV.ClearCapturedName()
-    Trackers.transitionCooldownUntil = os.clock() + 0.5
+    Trackers.ArmTransitionCooldown(0.8)
 end)
 
--- Map transition hook: reset all state when a new map loads
--- Note: RegisterLoadMapPreHook not available in UE4SS v3.0.1 stable
-local isTransitioning = false
+-- Map transition hooks: pause polling before tear-down, reset state after load.
+-- PreHook runs before the current map starts tearing down widgets — we arm a
+-- long cooldown so both the focus and poll loops short-circuit through the
+-- whole load. PostHook re-arms a shorter cooldown to cover initial widget
+-- construction on the new map.
+RegisterLoadMapPreHook(function(engine, world, url)
+    print("[AE] Map load starting, pausing poll loops")
+    -- 5s generously covers even a slow map load; PostHook will refresh it.
+    Trackers.ArmTransitionCooldown(5.0)
+    -- All cached singleton refs from the old map are about to be freed.
+    H.InvalidateCachedFirstOf()
+end)
 
 RegisterLoadMapPostHook(function(engine, world)
     print("[AE] Map loaded, resetting state")
-    isTransitioning = false
     ResetStaleState()
     SkillList.Reset()
     Battle.Reset()
     TeamOV.ClearCapturedName()
     EpisodeBattle.FullReset()  -- full reset on map change (story map too)
-    Trackers.transitionCooldownUntil = os.clock() + 0.5
+    Trackers.ArmTransitionCooldown(0.8)
 end)
 
 if Speech.IsLoaded() then

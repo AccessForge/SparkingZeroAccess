@@ -8,6 +8,7 @@ local H = require("helpers")
 local TryCall = H.TryCall
 local IsValidRef = H.IsValidRef
 local GetWidgetName = H.GetWidgetName
+local GetCachedFirstOf = H.GetCachedFirstOf
 
 local Trackers = {}
 
@@ -17,6 +18,22 @@ local SpeakQueued = nil
 -- Shared transition cooldown: checked by main loop and poll functions.
 -- Set when a dialog dismisses or a map loads.
 Trackers.transitionCooldownUntil = 0
+
+-- Single source of truth for "we're mid-transition, skip UObject access".
+-- Used by the focus loop, the poll loop, and individual pollers to avoid
+-- iterating/dereferencing UObjects while the game is destroying/creating widgets.
+function Trackers.IsInTransition()
+    return os.clock() < Trackers.transitionCooldownUntil
+end
+
+-- Arm the transition cooldown for the given duration (seconds), extending
+-- the existing window if one is already armed (never shortens it).
+function Trackers.ArmTransitionCooldown(seconds)
+    local until_ = os.clock() + seconds
+    if until_ > Trackers.transitionCooldownUntil then
+        Trackers.transitionCooldownUntil = until_
+    end
+end
 
 function Trackers.Init(speakFn, speakQueuedFn)
     Speak = speakFn
@@ -78,9 +95,12 @@ function Trackers.PollDialogs()
                 if not visible then
                     local key = dtype .. "_" .. i
                     if lastDialogState[key] and lastDialogState[key].visible then
-                        -- Dialog dismissed — trigger transition cooldown (400ms)
-                        Trackers.transitionCooldownUntil = os.clock() + 0.4
-                        print("[AE] Dialog dismissed, transition cooldown 400ms")
+                        -- Dialog dismissed — arm transition cooldown.
+                        -- UE5 takes visibly longer than 400ms to fully reap widgets after
+                        -- dismissal; 800ms gives the game thread room and closes the native
+                        -- UObject-freed-between-FindAllOf-and-method race window.
+                        Trackers.ArmTransitionCooldown(0.8)
+                        print("[AE] Dialog dismissed, transition cooldown 800ms")
                     end
                     if lastDialogState[key] then
                         lastDialogState[key].visible = false
@@ -207,10 +227,10 @@ function Trackers.PollScreenChanges()
 
     for _, screen in ipairs(screens) do
         local typeName, label = screen[1], screen[2]
-        local w = FindFirstOf(typeName)
+        local w = GetCachedFirstOf(typeName)
         local isVisible = false
 
-        if IsValidRef(w) and TryCall(w, "IsVisible") then
+        if w and TryCall(w, "IsVisible") then
             isVisible = true
         end
 
@@ -236,9 +256,11 @@ local lastRoomIdText = nil
 local lastPlayerStatus = {}  -- panel suffix -> {status, username}
 
 function Trackers.PollRoom()
-    -- Guard: skip expensive TextBlock scan if not on room screen
-    local ok, roomWindow = pcall(FindFirstOf, "WBP_MenuOLB_PLMatch_Room_LWindow_C")
-    if not ok or not roomWindow or not TryCall(roomWindow, "IsVisible") then
+    -- Guard: skip expensive TextBlock scan if not on room screen.
+    -- GetCachedFirstOf retains the room ref across ticks and throttles
+    -- negative-result GUObjectArray walks to one per 500ms.
+    local roomWindow = GetCachedFirstOf("WBP_MenuOLB_PLMatch_Room_LWindow_C")
+    if not roomWindow or not TryCall(roomWindow, "IsVisible") then
         if lastRoomIdText then
             lastRoomIdText = nil
             lastPlayerStatus = {}

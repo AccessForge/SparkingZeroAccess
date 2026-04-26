@@ -542,6 +542,11 @@ end
 --- Announces character name (if present) + dialog text on change.
 function EpisodeBattle.PollCutsceneText()
     if not Speak then return end
+    -- Gate: cutscene text only appears inside Episode Battle (char select,
+    -- story map, or in-game narration after cutscene skip has been seen).
+    -- Without this gate, we did a full FindAllOf("RichTextBlock") every tick
+    -- even on the title screen.
+    if not _announcedEntry and not _storyMapActive then return end
 
     local richBlocks = FindAllOf("RichTextBlock")
     if not richBlocks then
