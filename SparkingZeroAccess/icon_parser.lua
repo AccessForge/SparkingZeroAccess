@@ -23,7 +23,15 @@ local KeyNames = {
 -- Falls through to PS5 table for IDs not listed here
 local PS4Names = {
     Pad_05 = "Cross",
+    Pad_28 = "D-Pad Left",
+    Pad_29 = "D-Pad Right",
+    Pad_30 = "D-Pad Down",
+    Pad_31 = "D-Pad Up",
     pad_05 = "Cross",
+    pad_28 = "D-Pad Left",
+    pad_29 = "D-Pad Right",
+    pad_30 = "D-Pad Down",
+    pad_31 = "D-Pad Up",
 }
 
 -- PlayStation button IDs (Pad_XX, PS5 tables — also used as fallback for PS4)
@@ -96,13 +104,27 @@ local XboxNames = {
     Pad_25 = "D-Pad Left",
     Pad_26 = "Left Stick Horizontal",
     Pad_27 = "Left Stick Vertical",
-    Pad_28 = "Right Stick Horizontal",
-    Pad_29 = "Right Stick Vertical",
+    Pad_28 = "D-Pad Left",
+    Pad_29 = "D-Pad Right",
+    Pad_30 = "D-Pad Down",
+    Pad_31 = "D-Pad Up",
     -- lowercase variants
     pad_02 = "B",
     pad_04 = "X",
     pad_05 = "Y",
+    pad_28 = "D-Pad Left",
+    pad_29 = "D-Pad Right",
+    pad_30 = "D-Pad Down",
+    pad_31 = "D-Pad Up",
 }
+
+--- Helper to look up an icon ID with case-insensitive fallback
+local function LookupButton(nameTable, id)
+    if not nameTable or not id or id == "" then return nil end
+    local titleId = id:sub(1, 1):upper() .. id:sub(2):lower()
+    local capFirstId = id:sub(1, 1):upper() .. id:sub(2)
+    return nameTable[id] or nameTable[titleId] or nameTable[capFirstId] or nameTable[id:lower()]
+end
 
 --- Parse a single icon tag and return readable text
 local function ParseIcon(fullMatch, id, table_name, text)
@@ -113,17 +135,14 @@ local function ParseIcon(fullMatch, id, table_name, text)
     local upperTable = (table_name or ""):upper()
     
     if upperTable == "WINDOWS" or upperTable == "KEYBOARD" then
-        return KeyNames[id] or id
+        return LookupButton(KeyNames, id) or id
     elseif upperTable == "PS4" then
         -- PS4 table has some different mappings; fall through to PS5 for unknown IDs
-        local lookupId = id:sub(1,1):upper() .. id:sub(2)
-        return PS4Names[lookupId] or PS4Names[id] or PSNames[lookupId] or PSNames[id] or id
+        return LookupButton(PS4Names, id) or LookupButton(PSNames, id) or id
     elseif upperTable == "PS5" or upperTable == "SONY" then
-        local lookupId = id:sub(1,1):upper() .. id:sub(2)
-        return PSNames[lookupId] or PSNames[id] or id
+        return LookupButton(PSNames, id) or id
     elseif upperTable == "XBOXONE" or upperTable == "XSX" or upperTable == "XBOX" then
-        local lookupId = id:sub(1,1):upper() .. id:sub(2)
-        return XboxNames[lookupId] or XboxNames[id] or id
+        return LookupButton(XboxNames, id) or id
     end
 
     return id
