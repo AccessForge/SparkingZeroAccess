@@ -18,6 +18,8 @@ jobs:
           python-version: '3.12'
       - name: Install test runtime
         run: python -m pip install -r requirements-tests.txt
+      - name: Install narration conversion dependency
+        run: choco install ffmpeg --yes --no-progress
       - name: Lua 5.4 regressions and syntax
         run: python tests/run_lua54.py
       - name: Description builder fixtures

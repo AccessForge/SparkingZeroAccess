@@ -62,7 +62,9 @@ decision before claiming compatibility through automatic AccessForge updates.
 
 ## Reproduce automated checks
 
-Use Python 3.12 and stock Windows PowerShell 5.1 from the repository root:
+Use Python 3.12 and stock Windows PowerShell 5.1 from the repository root.
+The narration-builder fixtures also require FFmpeg on PATH; the Windows Tests
+workflow installs it explicitly.
 
 ```powershell
 python -m pip install -r requirements-tests.txt
