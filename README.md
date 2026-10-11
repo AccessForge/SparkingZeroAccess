@@ -4,6 +4,13 @@ A screen reader accessibility mod for **DRAGON BALL: Sparking! ZERO** on PC (Ste
 
 This mod reads game UI elements aloud through your screen reader (NVDA, JAWS, or SAPI fallback), making the game navigable for blind and visually impaired players. It tracks keyboard focus, reads menu labels, announces battle HUD changes, and more — all without altering gameplay or overriding game controls.
 
+The current repair was exercised on Windows Steam game version
+**3022.021.003.012.015**, build **24953175**. It adds game-thread reading and
+recovery, faster widget queries, language/controls/tutorial coverage, native
+character names, F6/F7/F8 review, twenty-second tutorial reminders, movie audio
+description and once-per-charge skill-guide reading. See
+[the repair and its validation limits](docs/current-build-repair.md).
+
 ## Features
 
 ### Menus
@@ -14,7 +21,7 @@ This mod reads game UI elements aloud through your screen reader (NVDA, JAWS, or
 - Button prompts read as text (e.g. "Triangle" instead of an icon)
 
 ### Character Select
-- Character names and DP costs in the roster grid (208 characters supported)
+- Character names from native game records and DP costs in the roster grid
 - Team slots with character name, DP, and slot number
 - Skills with type, name, button combo, cost, and description
 - Team overview with total DP
@@ -39,7 +46,20 @@ This mod reads game UI elements aloud through your screen reader (NVDA, JAWS, or
 - A screen reader: NVDA (recommended), JAWS, or Windows SAPI
 - Windows 10 or later (64-bit)
 
-### Using AccessForge (Recommended)
+### Standalone repair for the tested current build
+
+Download the complete `dragon-ball-sparking-zero-access-VERSION-repair.zip`
+asset from [Releases](https://github.com/AccessForge/SparkingZeroAccess/releases),
+extract it, close the game and run **Install.cmd**. It finds Steam libraries
+automatically, uses a numbered choice or Windows file picker when necessary,
+backs up replaced files and preserves other mod entries.
+
+This asset includes the tested loader and its required game-specific settings.
+AccessForge's generic loader selection and older mod-folder layout still need
+integration before its automatic install/update path can claim the same
+compatibility. See [loader requirements](deps/ue4ss-tested-1152.md).
+
+### Using AccessForge
 
 [AccessForge](https://github.com/AccessForge/AccessForge) is the easiest way to install and keep the mod up to date. It takes care of everything for you — the mod loader, dependencies, and the mod itself. It works fully with screen readers like NVDA.
 
@@ -51,17 +71,18 @@ That's it. When updates are released, they show up in the Updates tab — select
 
 ### Manual Installation
 
-1. **Install UE4SS v3.0.1** into `SparkingZERO\Binaries\Win64\`:
-   - Download from [UE4SS releases](https://github.com/UE4SS-RE/RE-UE4SS/releases)
-   - Extract all files into the `Win64` directory
+1. **Install the tested UE4SS loader and configuration** into `SparkingZERO\Binaries\Win64\`:
+   - Use `deps/ue4ss-tested-1152.zip` and follow its [layout and migration notes](deps/ue4ss-tested-1152.md).
+   - Back up and disable an active legacy root `UE4SS.dll` before using the new `ue4ss` subfolder layout.
+   - The required `HookInitGameState=0` setting is included. Stock UE4SS v3.0.1 is not the validated loader for this repair.
 
 2. **Install UTOC Signature Bypass**:
    - Required for UE4SS to work with this game
    - Place `dsound.dll` and `plugins\DBSparkingZeroUTOCBypass.asi` in the `Win64` directory
 
 3. **Install the mod**:
-   - Copy the contents of `SparkingZeroAccess\` into `SparkingZERO\Binaries\Win64\Mods\SparkingZeroAccess\Scripts\`
-   - Add `SparkingZeroAccess : 1` to `Mods\mods.txt`
+   - Copy the entire contents of `SparkingZeroAccess\`, including DLLs and `AudioDescription\`, into `SparkingZERO\Binaries\Win64\ue4ss\Mods\SparkingZeroAccess\Scripts\`.
+   - Add `SparkingZeroAccess : 1` to `ue4ss\Mods\mods.txt`.
 
 4. **Launch the game**. You should hear "Press confirm to start" on the title screen.
 
@@ -95,14 +116,22 @@ speech_bridge/              # Speech bridge source code
 
 ### How It Works
 
-The mod polls for keyboard focus changes every 16ms using UE4SS's `LoopAsync`. When focus moves to a new widget:
+The mod reads engine objects on the game thread through one persistent job pump.
+Map-load hooks suspend reads during transitions and discard delayed work from
+the old world. Focus recovery retries unresolved current captions without
+creating another polling loop. When focus moves to a new widget:
 
 1. **Fast path**: Check `WidgetLabels` table for known widget names (instant lookup)
 2. **Screen-specific handlers**: Character select, team overview, skill list, room ID input, etc. each have dedicated handlers
 3. **Generic path**: Read widget text via `caption` property or child TextBlock iteration
-4. **Slow fallback**: `FindAllOf("TextBlock")` scan filtered by widget path
+4. **Visible-tree fallback**: attached UI text scoped to the current widget and visible ancestors
 
 Speech output uses UniversalSpeech via a custom Lua C module (`speech_bridge.dll`) that statically links Lua 5.4 and dynamically loads UniversalSpeech.
+
+The movie description backend has separate source in `audio_bridge/`. Its build
+and reproducible reader/installer checks are documented in
+[current-build repair](docs/current-build-repair.md). The release workflow also
+packages the standalone repair through `helpers/Build-RepairPackage.py`.
 
 ### Building the Speech Bridge
 
@@ -132,13 +161,16 @@ Additional dumps:
 
 ### Adding New Characters
 
-When DLC characters are added to the game, update `chara_names.lua` with the new texture IDs and display names. The texture ID format is `T_UI_ChThumbP1_XXXX_YY_ZZ`. Run `uv run scripts/Update-CharaNames.py` to pull the latest data from the community spreadsheet.
+Character names now prefer the game's native character records, including late
+portrait loading and changed roster entries. `chara_names.lua` remains the
+fallback for older or unavailable records. See [character-name coverage](docs/character-names.md).
 
 ## Known Issues
 
-- Team slot character names use texture ID lookup — new DLC characters need to be added to `chara_names.lua`
-- Some options screens have values displayed as images instead of text (e.g. language selection)
-- Control style selector uses a full-screen overlay without keyboard focus
+- F9 off mutes text-only story lines as well as dialogue in recognized subtitle windows; F6 still reviews them. Voiced-only filtering remains unimplemented.
+- Some controller glyphs remain unresolved; this repair does not claim to resolve issue #3 or replace the separate D-pad PR #6.
+- Movie narration covers the main opening and post-tutorial movie only; other movies report unavailable.
+- Broader screens, online play, player-two/controller coverage and performance on other PCs still need live testing.
 - Victory and match result screens have code written but need a safe polling approach
 
 ## License

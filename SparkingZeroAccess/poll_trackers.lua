@@ -5,6 +5,9 @@
 ]]
 
 local H = require("helpers")
+local FindAllOf = H.FindAllOf
+local FindFirstOf = H.FindFirstOf
+local GameThread = require("game_thread")
 local TryCall = H.TryCall
 local IsValidRef = H.IsValidRef
 local GetWidgetName = H.GetWidgetName
@@ -18,12 +21,22 @@ local SpeakQueued = nil
 -- Shared transition cooldown: checked by main loop and poll functions.
 -- Set when a dialog dismisses or a map loads.
 Trackers.transitionCooldownUntil = 0
+local mapLoading = false
 
 -- Single source of truth for "we're mid-transition, skip UObject access".
 -- Used by the focus loop, the poll loop, and individual pollers to avoid
 -- iterating/dereferencing UObjects while the game is destroying/creating widgets.
 function Trackers.IsInTransition()
-    return os.clock() < Trackers.transitionCooldownUntil
+    return mapLoading or os.clock() < Trackers.transitionCooldownUntil
+end
+
+function Trackers.BeginMapLoad()
+    mapLoading = true
+end
+
+function Trackers.EndMapLoad()
+    mapLoading = false
+    Trackers.ArmTransitionCooldown(0.8)
 end
 
 -- Arm the transition cooldown for the given duration (seconds), extending
@@ -236,7 +249,8 @@ function Trackers.PollScreenChanges()
 
         if isVisible and not lastScreenState[typeName] then
             if screen[3] then
-                ExecuteWithDelay(screen[3], function()
+                GameThread.After(screen[3], "Title announcement", function()
+                    if Trackers.IsInTransition() or not IsValidRef(w) or not TryCall(w, "IsVisible") then return end
                     Speak(label, true)
                     print("[AE] Screen: " .. label .. " (delayed " .. screen[3] .. "ms)")
                 end)

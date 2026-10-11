@@ -1,0 +1,35 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reader-and-installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test runtime
+        run: python -m pip install -r requirements-tests.txt
+      - name: Lua 5.4 regressions and syntax
+        run: python tests/run_lua54.py
+      - name: Description builder fixtures
+        run: python -m unittest discover -s tests -p test_build_descriptions.py
+      - name: Installer discovery fixtures
+        shell: powershell
+        run: .\tests\install_discovery_test.ps1
+      - name: Installer preservation fixtures
+        shell: powershell
+        run: .\tests\install_repair_test.ps1
+      - name: Installer launcher fixture
+        shell: powershell
+        run: .\tests\install_launcher_test.ps1
+      - name: Build complete standalone repair
+        run: python helpers/Build-RepairPackage.py --output "${{ runner.temp }}/standalone-repair"

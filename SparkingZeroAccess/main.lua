@@ -3,8 +3,8 @@
     Phase 2: Live menu reader
 
     Uses targeted polling on known interactive widget classes.
-    IsValid() guards all UObject access. RegisterLoadMapPostHook
-    handles screen transitions. Watchdog restarts dead loops.
+    Object reads run on the game thread. Map hooks pause the reader
+    throughout map loading and invalidate references before it resumes.
 
     Reader starts automatically on game launch.
 ]]
@@ -12,6 +12,10 @@
 -- === MODULE LOADING ===
 
 local H = require("helpers")
+local FindAllOf = H.FindAllOf
+local FindFirstOf = H.FindFirstOf
+local GameThread = require("game_thread")
+local FocusReader = require("focus_reader")
 local TryCall = H.TryCall
 local TryGetProperty = H.TryGetProperty
 local IsValidRef = H.IsValidRef
@@ -30,6 +34,8 @@ local SkillList = require("skill_list")
 local Battle = require("battle")
 local EpisodeBattle = require("episode_battle")
 local Shop = require("shop")
+local ScreenReader = require("screen_reader")
+local Subtitles = require("subtitle_speech")
 
 -- === FOCUS TRACKING ===
 
@@ -43,13 +49,16 @@ local lastMatchedLabelWidget = nil
 local lastCaptionValue = nil
 local lastAnnouncedDialogId = nil
 local lastOptionsTip = nil
-local lastCharaName = nil
 local slowPathCooldown = 0
 local lastScreenContext = nil -- "team", "roster", "skilllist", "roomid", or nil
 local teamSlotPollFrames = 0 -- counts frames waiting for bubble to appear
 local roomIdDigitRefs = {}   -- cached TXT_Num TextBlock refs per IDPanel
 local lastCaptionRef = nil   -- cached TextBlock/RichTextBlock ref for caption polling
+local lastValueReader = nil  -- live reader for image-backed option values
 local focusEmptyScanStreak = 0 -- consecutive ticks the slow-path scan returned nil
+local pendingLabel = nil     -- focused hit area whose displayed button was not ready yet
+local LABEL_RETRY_SECONDS, LABEL_RETRY_LIMIT = 0.25, 12 -- about 3 s of retries
+local characterSlot = nil    -- focused character slot whose portrait is watched
 
 -- Read TXT_GuideMessage from the main menu base widget
 local function ReadGuideMessage()
@@ -107,6 +116,128 @@ local function ReadListTitle()
     return nil
 end
 
+-- Queue the matched widget's value when the spoken label is its own title.
+local function QueueMatchedValue(label)
+    if lastMatchedLabelWidget and lastCaptionValue then
+        local title, _ = WR.ReadWidgetTexts(lastMatchedLabelWidget)
+        if title and title == label then
+            SpeakQueued(lastCaptionValue)
+        end
+    end
+end
+
+-- === CHARACTER SLOTS ===
+-- Roster, team list and team slots are identified by their portraits. A
+-- portrait can still be loading when focus arrives, and it can change under
+-- unchanged focus (roster paging, team edits). The focused slot's own image is
+-- re-read on each focus tick; the object query is repeated only, bounded, when
+-- the portrait widget itself was not found.
+
+local CHARACTER_WAIT_SECONDS = LABEL_RETRY_SECONDS * LABEL_RETRY_LIMIT -- about 3 s
+-- Final pictures a portrait can show instead of a character (Roster.DescribePortrait).
+local PORTRAIT_STATES = {empty = "Empty", question = "Question mark", free = "Free",
+    unrecognized = "Unrecognized portrait"}
+
+local function IsCharacterId(charaId)
+    return charaId ~= nil and PORTRAIT_STATES[charaId] == nil
+end
+
+local function CharacterText(name, charaId, dp)
+    if name then return dp and (name .. ", " .. dp .. " DP") or name end
+    if charaId == nil then return "Loading character" end
+    return PORTRAIT_STATES[charaId] or "Unknown character"
+end
+
+-- A placeholder ("Loading character", "Unknown character", "Character
+-- unavailable") is corrected without cutting off speech queued after it.
+local function SpeakCharacterSlot(slot, name, charaId, dp, interrupt)
+    local text = CharacterText(name, charaId, dp)
+    slot.spokenText = text
+    slot.placeholder = name == nil and (charaId == nil or IsCharacterId(charaId))
+    print("[AE] " .. slot.label .. ": " .. text .. " (" .. tostring(charaId) .. ")")
+    slot.speak(text, interrupt)
+end
+
+local function ResetCharacterNameRetry(slot, name, charaId)
+    slot.namePending = name == nil and IsCharacterId(charaId)
+    slot.nameAttempts = 0
+    slot.nameDue = os.clock() + LABEL_RETRY_SECONDS
+end
+
+-- read() returns name, charaId, dp, portrait image, texture name.
+-- speak(text, interrupt) announces the slot in its screen's format.
+local function StartCharacterSlot(widget, label, read, speak)
+    local now = os.clock()
+    local slot = {widget = widget, label = label, read = read, speak = speak, attempts = 0,
+        due = now + LABEL_RETRY_SECONDS}
+    characterSlot = slot
+    local ok, name, charaId, dp, image, texture = pcall(read)
+    if not ok then
+        print("[AE] " .. label .. " portrait read error: " .. tostring(name))
+        name, charaId, dp, image, texture = nil, nil, nil, nil, nil
+    end
+    slot.image, slot.texture, slot.key = image, texture, charaId
+    slot.waitSince = charaId == nil and now or nil
+    ResetCharacterNameRetry(slot, name, charaId)
+    SpeakCharacterSlot(slot, name, charaId, dp, true)
+end
+
+local function CheckCharacterSlot()
+    local slot = characterSlot
+    if slot.widget ~= lastFocusedWidget then
+        characterSlot = nil
+        return
+    end
+    local read, name, charaId, dp = false, nil, nil, nil
+    if slot.image and not IsValidRef(slot.image) then slot.image = nil end
+    if slot.image then
+        local texture = Roster.ReadPortrait(slot.image)
+        if texture ~= slot.texture then
+            slot.texture, read = texture, true
+            name, charaId, dp = Roster.DescribePortrait(texture, slot.image)
+            ResetCharacterNameRetry(slot, name, charaId)
+        elseif slot.namePending and slot.nameAttempts < LABEL_RETRY_LIMIT
+            and os.clock() >= slot.nameDue then
+            -- The portrait can load before its character record. Reuse the
+            -- image; the native lookup itself is cached and miss-throttled.
+            slot.nameAttempts = slot.nameAttempts + 1
+            slot.nameDue = os.clock() + LABEL_RETRY_SECONDS
+            name, charaId, dp = Roster.DescribePortrait(texture, slot.image)
+            if name then slot.namePending, read = false, true end
+        end
+    elseif slot.attempts < LABEL_RETRY_LIMIT and os.clock() >= slot.due then
+        slot.attempts = slot.attempts + 1
+        slot.due = os.clock() + LABEL_RETRY_SECONDS
+        local ok, image, texture
+        ok, name, charaId, dp, image, texture = pcall(slot.read)
+        if not ok then name, charaId, dp, image, texture = nil, nil, nil, nil, nil end
+        slot.image, slot.texture, read = image, texture, true
+        ResetCharacterNameRetry(slot, name, charaId)
+        if not image and slot.attempts >= LABEL_RETRY_LIMIT then
+            print("[AE] " .. slot.label .. ": portrait widget not found after " .. slot.attempts .. " searches")
+        end
+    end
+    if read and charaId == nil then
+        -- Nothing shown now. A brief gap (page refill) is not announced.
+        slot.waitSince = slot.waitSince or os.clock()
+    elseif read then
+        slot.waitSince, slot.unavailable = nil, false
+        if charaId ~= slot.key or CharacterText(name, charaId, dp) ~= slot.spokenText then
+            slot.key = charaId
+            SpeakCharacterSlot(slot, name, charaId, dp, not slot.placeholder)
+        end
+    end
+    if slot.waitSince and not slot.unavailable
+        and os.clock() - slot.waitSince >= CHARACTER_WAIT_SECONDS then
+        -- Still nothing to identify: say so once instead of leaving "Loading"
+        -- or a cleared portrait's previous name.
+        slot.unavailable, slot.key = true, nil
+        slot.spokenText, slot.placeholder = "Character unavailable", true
+        print("[AE] " .. slot.label .. ": no character portrait after " .. CHARACTER_WAIT_SECONDS .. " s")
+        slot.speak("Character unavailable", false)
+    end
+end
+
 local function OnWidgetFocused(widget)
     if not readerEnabled then return end
 
@@ -115,6 +246,12 @@ local function OnWidgetFocused(widget)
 
     lastFocusedName = name
     lastFocusedWidget = widget
+    pendingLabel = nil
+    characterSlot = nil
+    -- Specialist handlers below may return early. Never carry the preceding
+    -- setting's value reader into another control or screen.
+    lastValueReader = nil
+    lastCaptionRef = nil
 
     -- Check if this widget's class is suppressed
     local className = GetClassName(widget)
@@ -318,43 +455,33 @@ local function OnWidgetFocused(widget)
         local slotNum = slot and (slot + 1) or 0
         print("[AE] Team slot: " .. slotNum .. " (" .. sideCode .. ")")
 
-        -- Read character name + DP via texture ID lookup
-        local nameOk, charaName, charaId, dp = pcall(TeamOV.ReadSlotCharaName, slot, sideCode)
-        if nameOk and charaName then
-            local announcement = charaName
-            if dp then announcement = announcement .. ", " .. dp .. " DP" end
-            Speak(announcement, true)
-            SpeakQueued("Slot " .. slotNum)
-            print("[AE] Slot " .. slotNum .. ": " .. charaName .. " (" .. charaId .. ") " .. (dp or "?") .. " DP")
-        elseif nameOk and charaId == "empty" then
-            Speak("Empty", true)
-            SpeakQueued("Slot " .. slotNum)
-            print("[AE] Slot " .. slotNum .. ": empty")
-        elseif nameOk and charaId then
-            Speak("Unknown character", true)
-            SpeakQueued("Slot " .. slotNum)
-            print("[AE] Slot " .. slotNum .. ": unknown ID " .. tostring(charaId))
-        else
-            Speak("Slot " .. slotNum, true)
-            print("[AE] Slot " .. slotNum .. ": unreadable")
-        end
+        -- Read the character from the slot's portrait
+        local owner = widget:GetFullName():match("(WBP_GRP_BS_Top_00_[12]P_C_%d+)")
+        StartCharacterSlot(widget, "Team slot " .. slotNum .. " (" .. sideCode .. ")",
+            function() return TeamOV.ReadSlotCharaName(slot, sideCode, owner) end,
+            function(text, interrupt)
+                Speak(text, interrupt)
+                SpeakQueued("Slot " .. slotNum)
+            end)
 
         -- Announce context + guide bar shortcuts on first entry or side switch
         if firstEntry then
-            -- Request hold button captions from game thread (async)
+            -- Refresh hold button captions in this game-thread polling cycle.
             pcall(TeamOV.RequestHoldButtonCaptions)
 
             local playerLabel = side or "Player 1"
-            -- Read total DP for the current side
-            local dpOk, totalDP, charCount = pcall(TeamOV.GetTotalDP, sideCode)
+            -- Count the side's characters; a total missing an unknown DP would be wrong.
+            local dpOk, totalDP, charCount = pcall(TeamOV.GetTotalDP, sideCode, owner)
             local dpInfo = ""
-            if dpOk and totalDP and totalDP > 0 then
-                dpInfo = ", Total " .. totalDP .. " DP, " .. charCount .. " characters"
+            if dpOk and charCount and charCount > 0 then
+                dpInfo = (totalDP and (", Total " .. totalDP .. " DP") or "") .. ", " .. charCount
+                    .. (charCount == 1 and " character" or " characters")
             end
             SpeakQueued(playerLabel .. ", Team Overview" .. dpInfo)
 
-            -- Delay guide bar read slightly to let game thread resolve hold captions
-            ExecuteWithDelay(100, function()
+            -- Let the guide bar finish updating before announcing its captions.
+            GameThread.After(100, "Team guide", function()
+                if lastScreenContext ~= teamContext then return end
                 local ok, shortcuts = pcall(TeamOV.ReadGuideBar)
                 if ok and shortcuts and #shortcuts > 0 then
                     for _, sc in ipairs(shortcuts) do
@@ -428,20 +555,13 @@ local function OnWidgetFocused(widget)
         -- Extract grid suffix from widget name (e.g. "WBP_OBJ_Common_HitButton_10" -> "10")
         local gridSuffix = name:match("HitButton_(%d+)$")
         if gridSuffix then
-            local charaName, charaId, dp = Roster.ReadGridCharaName(gridSuffix)
-            if charaName and charaName ~= lastCharaName then
-                lastCharaName = charaName
-                local announcement = charaName
-                if dp then announcement = announcement .. ", " .. dp .. " DP" end
-                Speak(announcement, true)
-                lastSpokenLabel = charaName
-                print("[AE] Roster grid " .. gridSuffix .. ": " .. charaName .. " (" .. tostring(charaId) .. ") " .. (dp or "?") .. " DP")
-            elseif not charaName and charaId then
-                -- Unknown character ID
-                Speak("Unknown character", true)
-                lastSpokenLabel = "unknown"
-                print("[AE] Roster grid " .. gridSuffix .. ": unknown ID " .. tostring(charaId))
-            end
+            local owner = widget:GetFullName():match("(WBP_GRP_BS_CharaList_DP_C_%d+)")
+            StartCharacterSlot(widget, "Roster grid " .. gridSuffix,
+                function() return Roster.ReadGridCharaName(gridSuffix, owner) end,
+                function(text, interrupt)
+                    lastSpokenLabel = text
+                    Speak(text, interrupt)
+                end)
         end
         return
     end
@@ -466,22 +586,16 @@ local function OnWidgetFocused(widget)
     if rosterCtx == "teamlist" then
         local slot = GetWidgetName(widget):match("HitButton_(%d+)$")
         if slot then
-            local charaName, charaId, dp = Roster.ReadTeamListCharaName(slot)
-            if charaName then
-                local announcement = charaName
-                if dp then announcement = announcement .. ", " .. dp .. " DP" end
-                announcement = "Slot " .. (tonumber(slot) + 1) .. ", " .. announcement
-                if announcement ~= lastSpokenLabel then
+            local slotNum = tonumber(slot) + 1
+            local owner = widget:GetFullName():match("(WBP_GRP_BS_ChList_TeamList_DB_C_%d+)")
+            StartCharacterSlot(widget, "Team list slot " .. slotNum,
+                function() return Roster.ReadTeamListCharaName(slot, owner) end,
+                function(text, interrupt)
+                    -- Every new focus speaks, also after passing through the list.
+                    local announcement = "Slot " .. slotNum .. ", " .. text
                     lastSpokenLabel = announcement
-                    Speak(announcement, true)
-                end
-            elseif charaId == "empty" then
-                local announcement = "Slot " .. (tonumber(slot) + 1) .. ", Empty"
-                if announcement ~= lastSpokenLabel then
-                    lastSpokenLabel = announcement
-                    Speak(announcement, true)
-                end
-            end
+                    Speak(announcement, interrupt)
+                end)
         end
         return
     end
@@ -523,7 +637,8 @@ local function OnWidgetFocused(widget)
             end
             -- Queue button label after a delay so the body text has time to be read
             local dialogWidget = widget
-            ExecuteWithDelay(1500, function()
+            GameThread.After(1500, "Dialog button", function()
+                if lastFocusedWidget ~= dialogWidget or not IsValidRef(dialogWidget) then return end
                 local label = WR.GetSpokenLabel(dialogWidget)
                 lastSpokenLabel = label
                 SpeakQueued(label)
@@ -549,16 +664,24 @@ local function OnWidgetFocused(widget)
         Speak(listTitle, true)
     end
 
-    -- GetSpokenLabel returns label, matchedWidget, captionValue, captionRef
+    -- Image-backed settings also return a live value reader.
     lastMatchedLabelWidget = nil
     lastCaptionValue = nil
     lastCaptionRef = nil
-    local label, matchedWidget, captionValue, captionRef = WR.GetSpokenLabel(widget)
+    lastValueReader = nil
+    local label, matchedWidget, captionValue, captionRef, valueReader = WR.GetSpokenLabel(widget)
     lastMatchedLabelWidget = matchedWidget
     lastCaptionValue = captionValue
     lastCaptionRef = captionRef
+    lastValueReader = valueReader
 
-    if label == lastSpokenLabel and not headerChanged then return end
+    -- No matched widget means the reader fell back to the widget name: the hit
+    -- area's displayed button was not initialized yet. PollFocus retries it.
+    if not matchedWidget and not valueReader and (name:find("HitBtn") or name:find("HitButton")) then
+        pendingLabel = {widget = widget, name = name, attempts = 0, due = os.clock() + LABEL_RETRY_SECONDS}
+    end
+
+    if label == lastSpokenLabel and not headerChanged and not lastValueReader then return end
 
     lastSpokenLabel = label
 
@@ -568,14 +691,14 @@ local function OnWidgetFocused(widget)
         Speak(label, true)
     end
 
-    if lastMatchedLabelWidget and lastCaptionValue then
-        local title, _ = WR.ReadWidgetTexts(lastMatchedLabelWidget)
-        if title and title == label then
-            SpeakQueued(lastCaptionValue)
-        end
+    if lastValueReader and lastCaptionValue then
+        print("[AE] Language value: " .. lastCaptionValue)
+        SpeakQueued(lastCaptionValue)
+    else
+        QueueMatchedValue(label)
     end
 
-    local pos, total = WR.GetListPosition(name)
+    local pos, total = WR.GetListPosition(name, widget)
     if pos and total then
         SpeakQueued(pos .. " of " .. total)
     end
@@ -586,8 +709,7 @@ local function OnWidgetFocused(widget)
         SpeakQueued(guide)
     end
 
-    if className == "WBP_OBJ_Option_List_011_Gauge_C"
-    or className == "WBP_OBJ_Option_List_010_Text_C" then
+    if className:match("^WBP_OBJ_Option_List_") then
         local tip = ReadOptionsTip()
         if tip and tip ~= lastOptionsTip then
             lastOptionsTip = tip
@@ -597,11 +719,24 @@ local function OnWidgetFocused(widget)
 end
 
 -- === FOCUS SCAN ===
--- Single FindAllOf("UserWidget"), no IsValidRef per-widget (too expensive).
+-- Prefer attached native focus branches; retain the global compatibility scan.
 -- The transition cooldown protects against stale refs during screen changes.
 -- pcall on HasKeyboardFocus catches any Lua-level errors on individual widgets.
 
+local focusTreeAnnounced, focusTreeWarning = false, false
 local function ScanForFocus()
+    local ok, focused, supported = pcall(FocusReader.Find)
+    if ok and supported then
+        if not focusTreeAnnounced then
+            focusTreeAnnounced = true
+            print('[AE] Native viewport focus reader active')
+        end
+        return focused
+    end
+    if not focusTreeWarning then
+        focusTreeWarning = true
+        print('[AE] Native viewport focus query unavailable; using compatibility widget scan')
+    end
     local ok, allWidgets = pcall(FindAllOf, "UserWidget")
     if not ok or not allWidgets then return nil end
     for i = 1, #allWidgets do
@@ -616,6 +751,37 @@ local function ScanForFocus()
     return nil
 end
 
+-- Re-resolve a focused hit area's label while its button initializes, at most
+-- LABEL_RETRY_LIMIT times. The correction is queued so that screen text
+-- announced meanwhile is not cut off.
+local function RetryPendingLabel()
+    local pending = pendingLabel
+    if pending.widget ~= lastFocusedWidget then
+        pendingLabel = nil
+        return
+    end
+    if os.clock() < pending.due then return end
+    pending.attempts = pending.attempts + 1
+    local label, matchedWidget, captionValue, captionRef = WR.GetSpokenLabel(pending.widget)
+    if matchedWidget then
+        pendingLabel = nil
+        lastMatchedLabelWidget = matchedWidget
+        lastCaptionValue = captionValue
+        lastCaptionRef = captionRef
+        print("[AE] Focus label ready after " .. pending.attempts .. " retries: " .. label)
+        if label ~= lastSpokenLabel then
+            lastSpokenLabel = label
+            SpeakQueued(label)
+            QueueMatchedValue(label)
+        end
+    elseif pending.attempts >= LABEL_RETRY_LIMIT then
+        pendingLabel = nil
+        print("[AE] Focus label unavailable after " .. pending.attempts .. " retries: " .. pending.name)
+    else
+        pending.due = os.clock() + LABEL_RETRY_SECONDS
+    end
+end
+
 local function PollFocus()
     -- Cooldown: skip UObject access to let game finish destroying widgets
     if slowPathCooldown > 0 then
@@ -627,10 +793,13 @@ local function PollFocus()
     if os.clock() < Trackers.transitionCooldownUntil then
         if lastFocusedWidget then
             lastFocusedWidget = nil
+            lastValueReader = nil
             lastFocusedName = nil
             lastSpokenLabel = nil
             lastMatchedLabelWidget = nil
         end
+        pendingLabel = nil
+        characterSlot = nil
         focusEmptyScanStreak = 0
         return
     end
@@ -641,9 +810,12 @@ local function PollFocus()
             -- Widget destroyed — clear refs, fall through to slow path
             -- No cooldown needed: IsValid() caught it safely
             lastFocusedWidget = nil
+            lastValueReader = nil
             lastFocusedName = nil
             lastSpokenLabel = nil
             lastMatchedLabelWidget = nil
+            pendingLabel = nil
+            characterSlot = nil
         else
             local ok, stillFocused = pcall(function()
                 return lastFocusedWidget:HasKeyboardFocus()
@@ -653,9 +825,12 @@ local function PollFocus()
                 -- pcall caught error after IsValid passed — enter brief cooldown
                 print("[AE] Stale widget after IsValid, brief cooldown")
                 lastFocusedWidget = nil
+                lastValueReader = nil
                 lastFocusedName = nil
                 lastSpokenLabel = nil
                 lastMatchedLabelWidget = nil
+                pendingLabel = nil
+                characterSlot = nil
                     TeamOV.InvalidateCache()
                 Roster.InvalidateCache()
                 slowPathCooldown = 6 -- 6 x 16ms = ~100ms
@@ -663,6 +838,9 @@ local function PollFocus()
             end
 
             if stillFocused then
+                if pendingLabel then RetryPendingLabel() end
+                -- Character slots: re-read the focused portrait, never rescan
+                if characterSlot then CheckCharacterSlot() end
                 -- Room ID digit change polling (cached TXT_Num TextBlock ref)
                 if lastScreenContext == "roomid" and IsValidRef(lastMatchedLabelWidget) then
                     local ok, gt = pcall(function() return lastMatchedLabelWidget:GetText() end)
@@ -672,6 +850,13 @@ local function PollFocus()
                             lastCaptionValue = newDigit
                             Speak(newDigit, true)
                         end
+                    end
+                elseif lastValueReader then
+                    local newValue = lastValueReader()
+                    if newValue and newValue ~= lastCaptionValue then
+                        lastCaptionValue = newValue
+                        print("[AE] Language value: " .. newValue)
+                        Speak(newValue, true)
                     end
                 -- Focus unchanged — check caption value changes (D-pad left/right)
                 elseif lastCaptionRef and IsValidRef(lastCaptionRef) then
@@ -684,16 +869,18 @@ local function PollFocus()
                         end
                     end
                 end
-                -- Texture-based roster reading is per-button, no polling needed
                 return
             end
 
             -- Focus moved — clear cached widget, fall through to slow path
             lastFocusedWidget = nil
+            lastValueReader = nil
+            pendingLabel = nil
+            characterSlot = nil
         end
     end
 
-    -- Slow path: single FindAllOf("UserWidget") scan.
+    -- Slow path: discover focus from attached native roots or compatibility scan.
     -- Throttle: after 6 consecutive empty scans (~100ms) drop to 1-in-6 cadence
     -- so we don't burn 60Hz GUObjectArray walks on screens that genuinely have
     -- no focusable widget (cutscene fades, animations, brief dialog gaps).
@@ -715,16 +902,17 @@ local function PollFocus()
     if lastFocusedName ~= nil then
         lastFocusedName = nil
         lastFocusedWidget = nil
+        lastValueReader = nil
         lastSpokenLabel = nil
     end
+    pendingLabel = nil
+    characterSlot = nil
 end
 
 -- === MAIN LOOP ===
 
-local focusLoopHeartbeat = 0
-local pollLoopHeartbeat = 0
-
-local function ResetStaleState()
+local function ResetStaleState(keepMovie)
+    ScreenReader.Reset(keepMovie)
     lastFocusedName = nil
     lastFocusedWidget = nil
     lastSpokenLabel = nil
@@ -734,13 +922,16 @@ local function ResetStaleState()
     lastCaptionValue = nil
     lastAnnouncedDialogId = nil
     lastOptionsTip = nil
-    lastCharaName = nil
     lastCaptionRef = nil
+    lastValueReader = nil
+    pendingLabel = nil
+    characterSlot = nil
     focusEmptyScanStreak = 0
     teamSlotPollFrames = 0
     roomIdDigitRefs = {}
     TeamOV.InvalidateCache()
     Roster.InvalidateCache()
+    Roster.InvalidateCharacterData()
     EpisodeBattle.Reset()
     Shop.Reset()
 end
@@ -766,17 +957,16 @@ local function IsWorldAlive()
 end
 
 local function StartFocusLoop()
-    LoopAsync(16, function()
+    GameThread.Every(16, "Focus reader", function()
         if not readerEnabled or Trackers.IsInTransition() or not IsWorldAlive() then
-            focusLoopHeartbeat = os.clock()
+            if not readerEnabled then pendingLabel, characterSlot = nil, nil end
             return false
         end
         local ok, err = pcall(PollFocus)
         if not ok then
             print("[AE] Focus loop error: " .. tostring(err))
-            ResetStaleState()
+            ResetStaleState(true)
         end
-        focusLoopHeartbeat = os.clock()
         return false
     end)
 end
@@ -787,9 +977,8 @@ local function StartPollLoop()
     -- is more than tight enough for announcements (HP thresholds, integer-second timer,
     -- dialog appearance) without burning 60Hz of FindAllOf/FindFirstOf scans.
     -- Focus tracking is on a separate 16ms loop for screen-reader responsiveness.
-    LoopAsync(100, function()
+    GameThread.Every(100, "Screen reader", function()
         if not readerEnabled or Trackers.IsInTransition() or not IsWorldAlive() then
-            pollLoopHeartbeat = os.clock()
             return false
         end
         local ok, err = pcall(Trackers.PollDialogs)
@@ -813,7 +1002,6 @@ local function StartPollLoop()
         if not ok5r then print("[AE] PollResult error: " .. tostring(err5r)) end
         local ok10, err10 = pcall(Shop.PollCategory)
         if not ok10 then print("[AE] PollShopCategory error: " .. tostring(err10)) end
-        pollLoopHeartbeat = os.clock()
         return false
     end)
 end
@@ -821,26 +1009,13 @@ end
 local function StartReader()
     StartFocusLoop()
     StartPollLoop()
-
-    -- Watchdog: detects dead loops and restarts them.
-    -- No UObject access — survives native crashes.
-    LoopAsync(2000, function()
-        if not readerEnabled then return false end
-        local now = os.clock()
-        local focusDead = (now - focusLoopHeartbeat) > 1.5
-        local pollDead = (now - pollLoopHeartbeat) > 1.5
-
-        if focusDead or pollDead then
-            print("[AE] Watchdog: loops died (focus=" .. tostring(focusDead)
-                .. " poll=" .. tostring(pollDead) .. "), restarting")
-            ResetStaleState()
-            if focusDead then StartFocusLoop() end
-            if pollDead then StartPollLoop() end
+    GameThread.Every(250, "Visible screen text", function()
+        if readerEnabled and not Trackers.IsInTransition() and IsWorldAlive() then
+            ScreenReader.Poll()
         end
-        return false
     end)
 
-    print("[AE] Reader loops started (with watchdog)")
+    print("[AE] Reader scheduled on the game thread (one pending dispatch)")
 end
 
 -- === DEBUG TOOLS (remove this block to disable) ===
@@ -855,10 +1030,16 @@ end
 -- === INIT ===
 print("[AE] Initializing SparkingZeroAccess Phase 2...")
 Speech.Init()
+Subtitles.Init(Speak)
 Trackers.Init(Speak, SpeakQueued)
 EpisodeBattle.Init(Speak, SpeakQueued)
 Shop.Init(Speak, SpeakQueued)
-TeamOV.InitHook()
+ScreenReader.Init(Speak, SpeakQueued, function()
+    return readerEnabled and not Trackers.IsInTransition() and IsWorldAlive()
+end)
+-- No TextBlock:SetText hook (TeamOV.InitHook): its captured bubble name is never
+-- read, and UE4SS runs that Lua for every scripted SetText on the hook thread it
+-- shares with reader callbacks. Team names come from portraits and native records.
 Battle.Init()
 Battle.SetResetCallback(function()
     print("[AE] Result screen reset triggered")
@@ -869,31 +1050,41 @@ Battle.SetResetCallback(function()
 end)
 
 -- Map transition hooks: pause polling before tear-down, reset state after load.
--- PreHook runs before the current map starts tearing down widgets — we arm a
--- long cooldown so both the focus and poll loops short-circuit through the
--- whole load. PostHook re-arms a shorter cooldown to cover initial widget
--- construction on the new map.
-RegisterLoadMapPreHook(function(engine, world, url)
-    print("[AE] Map load starting, pausing poll loops")
-    -- 5s generously covers even a slow map load; PostHook will refresh it.
-    Trackers.ArmTransitionCooldown(5.0)
-    -- All cached singleton refs from the old map are about to be freed.
-    H.InvalidateCachedFirstOf()
-end)
+-- A load has no fixed time limit. Only the matching post hook resumes reads.
+-- Stock 3.0.1 pushes five arguments but calls this hook with an argument count
+-- of four (UE4SS #776). This later API is present only after that fix.
+if type(LoopInGameThreadWithDelay) == "function" then
+    RegisterLoadMapPreHook(function(engine, world, url)
+        print("[AE] Map load starting, pausing poll loops")
+        pendingLabel = nil -- never re-resolve a widget from the old world
+        characterSlot = nil
+        ScreenReader.Reset() -- Stop movie narration before the old world is torn down.
+        GameThread.PauseForMapLoad()
+        Trackers.BeginMapLoad()
+        _cachedGameInstance = nil
+        H.InvalidateCachedFirstOf()
+    end)
+else
+    print("[AE] Legacy UE4SS detected: skipping its broken map pre-hook; update UE4SS for full transition protection")
+end
 
 RegisterLoadMapPostHook(function(engine, world)
     print("[AE] Map loaded, resetting state")
+    GameThread.PauseForMapLoad() -- also discards old callbacks on legacy loaders
+    H.InvalidateCachedFirstOf()
+    _cachedGameInstance = nil
     ResetStaleState()
     SkillList.Reset()
     Battle.Reset()
     TeamOV.ClearCapturedName()
     EpisodeBattle.FullReset()  -- full reset on map change (story map too)
-    Trackers.ArmTransitionCooldown(0.8)
+    Trackers.EndMapLoad()
+    GameThread.ResumeAfterMapLoad(0.8)
 end)
 
 if Speech.IsLoaded() then
     StartReader()
-    print("[AE] Live menu reader active.")
+    print("[AE] Waiting for first game-thread read.")
 else
     print("[AE] Speech not available.")
 end

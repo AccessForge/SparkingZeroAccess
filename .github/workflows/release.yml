@@ -44,6 +44,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Package standalone repair with tested loader
+        shell: pwsh
+        run: python helpers/Build-RepairPackage.py --output "dragon-ball-sparking-zero-access-${{ inputs.version }}-repair"
+
       - name: Package mod
         shell: bash
         run: |
@@ -55,6 +59,7 @@ jobs:
         run: |
           gh release create "v${{ inputs.version }}" \
             "dragon-ball-sparking-zero-access-${{ inputs.version }}.zip" \
+            "dragon-ball-sparking-zero-access-${{ inputs.version }}-repair.zip" \
             --title "v${{ inputs.version }}" \
             --generate-notes
         env:

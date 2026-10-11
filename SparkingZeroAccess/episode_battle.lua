@@ -15,6 +15,8 @@
 ]]
 
 local H = require("helpers")
+local FindAllOf = H.FindAllOf
+local FindFirstOf = H.FindFirstOf
 local TryCall = H.TryCall
 local TryGetProperty = H.TryGetProperty
 local IsValidRef = H.IsValidRef
@@ -22,6 +24,7 @@ local GetWidgetName = H.GetWidgetName
 local GetClassName = H.GetClassName
 
 local IconParser = require("icon_parser")
+local Subtitles = require("subtitle_speech")
 
 local EpisodeBattle = {}
 
@@ -124,8 +127,48 @@ local function ReadCharaSelectText(fieldName)
     return ReadTextInContainer(fieldName, CONTAINER_CLASS)
 end
 
-local function ReadChartText(fieldName)
-    return ReadTextInContainer(fieldName, "WBP_GRP_AI_ChartTitle_C")
+-- A retained chart can still have text after its screen is removed. Check its
+-- native parent/outer chain so detached or hidden owners cannot start speech.
+local function AttachedAndVisible(widget)
+    local visited = {}
+    for _ = 1, 128 do
+        if not IsValidRef(widget) then return false end
+        local path = TryCall(widget, "GetFullName")
+        if not path or visited[path] then return false end
+        visited[path] = true
+        if TryCall(widget, "IsVisible") == false then return false end
+        local opacity = TryGetProperty(widget, "RenderOpacity")
+        if type(opacity) == "number" and opacity <= 0.001 then return false end
+        if TryCall(widget, "IsInViewport") == true then return true end
+        local parent = TryCall(widget, "GetParent")
+        widget = IsValidRef(parent) and parent or TryCall(widget, "GetOuter")
+    end
+    return false
+end
+
+local function ReadChartFields()
+    local chart
+    for _, candidate in ipairs(FindAllOf("WBP_GRP_AI_ChartTitle_C")) do
+        if AttachedAndVisible(candidate) then chart = candidate; break end
+    end
+    if not chart then return {} end
+    local chartPath = TryCall(chart, "GetFullName")
+    local ownerPath = chartPath and chartPath:match("^%S+ (.+)$")
+    if not ownerPath then return {} end
+    local fields, wanted = {}, {Text_ScenarioTitle_0=true, Text_ScenarioTitle_1=true,
+        Text_EventTitle=true, Text_Chapter=true, TXT_Orb=true}
+    -- Only an attached chart triggers this query. Walk the results once for all
+    -- fields, rather than repeat hundreds of GetFullName calls per field.
+    for _, tb in ipairs(FindAllOf("TextBlock")) do
+        local path = TryCall(tb, "GetFullName")
+        local field = path and path:match("%.([^%.]+)$")
+        if wanted[field] and path:find(ownerPath .. ".", 1, true)
+            and AttachedAndVisible(tb) then
+            local text = TryCall(TryCall(tb, "GetText"), "ToString")
+            if type(text) == "string" and text ~= "" then fields[field] = text end
+        end
+    end
+    return fields
 end
 
 --- Read the button caption from a BTN_Menu widget matching a suffix.
@@ -290,12 +333,13 @@ end
 -- === STORY MAP: POLL-BASED READING ===
 
 --- Poll for story map visibility and node changes.
---- Uses safe FindAllOf("TextBlock") scan — no FindFirstOf crash risk.
+--- No global text scan runs when an attached story chart is absent.
 function EpisodeBattle.PollStoryMap()
     if not Speak then return end
 
     -- Detect story map via Text_ScenarioTitle_0 (always present, never placeholder)
-    local saga = ReadChartText("Text_ScenarioTitle_0")
+    local fields = ReadChartFields()
+    local saga = fields.Text_ScenarioTitle_0
 
     if not saga then
         if _storyMapActive then
@@ -320,7 +364,7 @@ function EpisodeBattle.PollStoryMap()
     end
 
     -- Read event title, filtering "???" placeholder
-    local eventTitle = ReadChartText("Text_EventTitle")
+    local eventTitle = fields.Text_EventTitle
     if eventTitle == "???" then eventTitle = nil end
 
     -- Delayed entry announcement (waits for char select to fade)
@@ -332,9 +376,9 @@ function EpisodeBattle.PollStoryMap()
         _announcedMapEntry = true
 
         -- Re-read saga fresh (char select text should be gone by now)
-        saga = ReadChartText("Text_ScenarioTitle_0")
-        local arc = ReadChartText("Text_ScenarioTitle_1")
-        local chapter = ReadChartText("Text_Chapter")
+        saga = fields.Text_ScenarioTitle_0
+        local arc = fields.Text_ScenarioTitle_1
+        local chapter = fields.Text_Chapter
 
         local parts = {}
         if saga then table.insert(parts, saga) end
@@ -354,7 +398,7 @@ function EpisodeBattle.PollStoryMap()
         end
 
         -- Read Dragon Orb status
-        local orb = ReadChartText("TXT_Orb")
+        local orb = fields.TXT_Orb
         if orb then
             SpeakQueued(orb)
         end
@@ -378,21 +422,21 @@ function EpisodeBattle.PollStoryMap()
         print("[AE] Story node: " .. eventTitle)
 
         -- Check if chapter changed too
-        local chapter = ReadChartText("Text_Chapter")
+        local chapter = fields.Text_Chapter
         if chapter and chapter ~= _lastChapter then
             _lastChapter = chapter
             SpeakQueued(chapter)
         end
 
         -- Check if arc changed
-        local arc = ReadChartText("Text_ScenarioTitle_1")
+        local arc = fields.Text_ScenarioTitle_1
         if arc and arc ~= _lastScenario1 then
             _lastScenario1 = arc
             SpeakQueued(arc)
         end
 
         -- Check if saga changed
-        local saga = ReadChartText("Text_ScenarioTitle_0")
+        local saga = fields.Text_ScenarioTitle_0
         if saga and saga ~= _lastScenario0 then
             _lastScenario0 = saga
             SpeakQueued(saga)
@@ -606,8 +650,10 @@ function EpisodeBattle.PollCutsceneText()
     if not charaName then
         local collapsed = mainTalkText:gsub("\n", " "):gsub("%s+", " "):match("^%s*(.-)%s*$")
         if collapsed and collapsed ~= "" then
-            SpeakQueued(collapsed)
-            print("[AE] Cutscene narration: " .. collapsed)
+            if Subtitles.IsEnabled() then
+                SpeakQueued(collapsed)
+                print("[AE] Cutscene narration: " .. collapsed)
+            end
 
             -- Read the next button icon and pass through icon parser
             if eventTextPath then

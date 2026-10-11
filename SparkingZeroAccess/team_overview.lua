@@ -10,9 +10,11 @@
 ]]
 
 local H = require("helpers")
+local FindAllOf = H.FindAllOf
+local FindFirstOf = H.FindFirstOf
 local TryCall = H.TryCall
 local GetWidgetName = H.GetWidgetName
-local CharaNames = require("chara_names")
+local Roster = require("chara_roster")
 
 local TeamOV = {}
 
@@ -81,41 +83,32 @@ function TeamOV.ClearCapturedName()
 end
 
 -- === HOLD BUTTON CAPTION CACHE ===
--- TextBlock captions need game thread context to resolve.
--- We queue a read via ExecuteInGameThread and cache the results.
+-- Called by the focus reader, already on the game thread. Do not enqueue a
+-- nested ExecuteInGameThread action: UE4SS 3.0.1 is iterating that action list.
 
 local _holdButtonCaptions = {}  -- btnId -> caption string
-local _holdCaptionsPending = false
-
---- Queue game-thread reads of hold button captions.
---- Results appear in _holdButtonCaptions on next poll cycle.
+--- Refresh hold button captions from the current team screen.
 function TeamOV.RequestHoldButtonCaptions()
-    if _holdCaptionsPending then return end
-    _holdCaptionsPending = true
-    ExecuteInGameThread(function()
-        -- Read ALL caption TextBlocks inside BtnSet hold buttons.
-        -- Don't use FindFirstOf per class — there can be duplicate instances
-        -- (e.g. roster grid also has a HoldButton_00). Filter by BtnSet parent.
-        local textBlocks = FindAllOf("TextBlock")
-        if textBlocks then
-            for _, tb in ipairs(textBlocks) do
-                local ok, tbPath = pcall(function() return tb:GetFullName() end)
-                if ok and tbPath:find("Transient", 1, true)
-                   and tbPath:find("BtnSet", 1, true)
-                   and GetWidgetName(tb) == "caption" then
-                    local btnId = tbPath:match("(WBP_OBJ_Common_HoldButton_%d+)")
-                    if btnId then
-                        local ok2, text = pcall(function() return tb:GetText():ToString() end)
-                        if ok2 and text and text:match("%S") then
-                            _holdButtonCaptions[btnId] = text
-                            print("[AE] GameThread hold caption: " .. btnId .. " = " .. text)
-                        end
+    _holdButtonCaptions = {}
+    -- Duplicate hold buttons can belong to the roster grid; match BtnSet.
+    local textBlocks = FindAllOf("TextBlock")
+    if textBlocks then
+        for _, tb in ipairs(textBlocks) do
+            local ok, tbPath = pcall(function() return tb:GetFullName() end)
+            if ok and tbPath:find("Transient", 1, true)
+               and tbPath:find("BtnSet", 1, true)
+               and GetWidgetName(tb) == "caption" then
+                local btnId = tbPath:match("(WBP_OBJ_Common_HoldButton_%d+)")
+                if btnId then
+                    local ok2, text = pcall(function() return tb:GetText():ToString() end)
+                    if ok2 and text and text:match("%S") then
+                        _holdButtonCaptions[btnId] = text
+                        print("[AE] GameThread hold caption: " .. btnId .. " = " .. text)
                     end
                 end
             end
         end
-        _holdCaptionsPending = false
-    end)
+    end
 end
 
 --- Check if hold button captions have been cached.
@@ -336,61 +329,24 @@ function TeamOV.ReadBubbleName()
     return nil
 end
 
---- Read character ID from CharaIcon's IMG_Face_Main texture.
---- Returns the character ID string (e.g. "0000_00") or nil for empty/unreadable slots.
+--- Find a team slot's CharaIcon IMG_Face_Main portrait image.
 --- slotIndex: 0-4 (matches HitButton_0 through _4)
 --- side: "1P" or "2P" (defaults to "1P")
-function TeamOV.ReadSlotTextureId(slotIndex, side)
-    side = side or "1P"
-    local iconName = "WBP_OBJ_BS_CharaIcon_" .. slotIndex
-    local pathFilter = "Top_00_" .. side
-    local images = FindAllOf("Image")
-    if not images then return nil end
+--- owner: optional Top_00 instance name of the focused slot
+function TeamOV.FindSlotPortrait(slotIndex, side, owner)
+    return Roster.FindPortrait("WBP_OBJ_BS_CharaIcon_" .. slotIndex, "Top_00_" .. (side or "1P"), owner)
+end
 
-    for _, img in ipairs(images) do
-        local ok, imgPath = pcall(function() return img:GetFullName() end)
-        if ok and imgPath:find(iconName, 1, true)
-           and imgPath:find(pathFilter, 1, true)
-           and imgPath:find("Transient", 1, true) then
-            local imgWidgetName = GetWidgetName(img)
-            if imgWidgetName == "IMG_Face_Main" then
-                -- Try reading Brush.ResourceObject.GetFullName()
-                local ok2, texName = pcall(function()
-                    local brush = img.Brush
-                    if not brush then return nil end
-                    local res = brush.ResourceObject
-                    if not res then return nil end
-                    return res:GetFullName()
-                end)
-                if ok2 and texName then
-                    -- Extract character ID from texture name
-                    -- Pattern: T_UI_ChThumbP1_XXXX_YY_ZZ or T_UI_ChThumbP2_XXXX_YY_ZZ
-                    local charaId = texName:match("T_UI_ChThumb[^_]+_(%d+_%d+)_%d+")
-                    if charaId then
-                        return charaId, texName
-                    end
-                    -- Check if it's an empty slot texture
-                    if texName:find("Empty", 1, true) then
-                        return nil, texName
-                    end
-                end
-
-                -- Try alternate: brush (lowercase)
-                local ok3, texName3 = pcall(function()
-                    local brush = img.brush
-                    if not brush then return nil end
-                    local res = brush.ResourceObject
-                    if not res then return nil end
-                    return res:GetFullName()
-                end)
-                if ok3 and texName3 then
-                    local charaId = texName3:match("T_UI_ChThumb[^_]+_(%d+_%d+)_%d+")
-                    if charaId then return charaId, texName3 end
-                end
-            end
-        end
-    end
-    return nil
+--- Read character ID from CharaIcon's IMG_Face_Main texture.
+--- Returns the character ID string (e.g. "0000_00") or nil for empty/unreadable
+--- slots, then the texture name and the portrait image.
+function TeamOV.ReadSlotTextureId(slotIndex, side, owner)
+    local image = TeamOV.FindSlotPortrait(slotIndex, side, owner)
+    if not image then return nil end
+    local texName = Roster.ReadPortrait(image)
+    -- Pattern: T_UI_ChThumbP1_XXXX_YY_ZZ or T_UI_ChThumbP2_XXXX_YY_ZZ
+    local charaId = texName and texName:match("T_UI_ChThumb[^_]+_(%d+_%d+)_%d+")
+    return charaId, texName, image
 end
 
 --- Test texture reading from current context.
@@ -402,7 +358,7 @@ function TeamOV.TestTextureRead()
         if charaId then
             print("[AE] Slot " .. (i+1) .. ": charaId=" .. charaId .. " tex=" .. tostring(texName))
         elseif texName then
-            print("[AE] Slot " .. (i+1) .. ": empty (" .. texName .. ")")
+            print("[AE] Slot " .. (i+1) .. ": no character (" .. texName .. ")")
         else
             print("[AE] Slot " .. (i+1) .. ": unreadable")
         end
@@ -410,41 +366,41 @@ function TeamOV.TestTextureRead()
     print("[AE] === End Texture Test ===")
 end
 
---- Read character name and DP for a team slot via texture ID lookup.
+--- Read character name and DP for a team slot from its portrait.
 --- side: "1P" or "2P" (defaults to "1P")
---- Returns: name, charaId, dp  — character found in lookup
----          nil, charaId, nil  — character found but unknown ID
----          nil, "empty", nil  — slot is empty
----          nil, nil, nil      — texture unreadable
-function TeamOV.ReadSlotCharaName(slotIndex, side)
-    local charaId, texName = TeamOV.ReadSlotTextureId(slotIndex, side)
-    if not charaId then
-        if texName and texName:find("Empty", 1, true) then
-            return nil, "empty", nil
-        end
-        return nil, nil, nil
-    end
-    local name = CharaNames.GetName(charaId)
-    local dp = CharaNames.GetDP(charaId)
-    return name, charaId, dp
+--- Returns Roster.DescribePortrait's name, charaId, dp (charaId may also be
+--- "empty", "question", "free" or "unrecognized"; all nil while not readable),
+--- followed by the portrait image and texture name.
+function TeamOV.ReadSlotCharaName(slotIndex, side, owner)
+    local image = TeamOV.FindSlotPortrait(slotIndex, side, owner)
+    if not image then return nil, nil, nil, nil, nil end
+    local texName = Roster.ReadPortrait(image)
+    local name, charaId, dp = Roster.DescribePortrait(texName, image)
+    return name, charaId, dp, image, texName
 end
 
---- Calculate total DP for all filled slots.
+--- Count filled slots and total their DP.
 --- side: "1P" or "2P" (defaults to "1P")
-function TeamOV.GetTotalDP(side)
+--- Returns total (nil when any filled slot's DP is unknown) and the count;
+--- both nil while any slot shows neither a character nor Empty (loading,
+--- "?", unrecognized), since its member is not known.
+function TeamOV.GetTotalDP(side, owner)
     local total = 0
     local count = 0
     for i = 0, 4 do
-        local _, charaId, dp = TeamOV.ReadSlotCharaName(i, side)
-        if charaId and charaId ~= "empty" and dp then
-            total = total + dp
+        local _, charaId, dp = TeamOV.ReadSlotCharaName(i, side, owner)
+        if charaId ~= "empty" then
+            if not (charaId and charaId:match("^%d+_%d+$")) then return nil, nil end
             count = count + 1
+            total = (total and dp) and (total + dp) or nil
         end
     end
     return total, count
 end
 
 --- No-op for compatibility (main.lua calls this on screen transitions)
-function TeamOV.InvalidateCache() end
+function TeamOV.InvalidateCache()
+    _holdButtonCaptions = {}
+end
 
 return TeamOV

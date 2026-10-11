@@ -11,6 +11,8 @@
 ]]
 
 local H = require("helpers")
+local FindAllOf = H.FindAllOf
+local FindFirstOf = H.FindFirstOf
 local TryCall = H.TryCall
 local IsValidRef = H.IsValidRef
 local GetWidgetName = H.GetWidgetName
@@ -51,6 +53,9 @@ local _resultAnnounced = false  -- have we announced the result screen
 local _resultResetCallback = nil -- callback to trigger full reset when result screen closes
 local _cachedResultWidget = nil -- live ref to the visible+Transient result widget once found
 local _resultMissUntil = 0      -- throttle for negative FindAllOf results during battle
+local _chargeHUD, _chargeHUDRoot = nil, false
+local _chargePawn, _chargePawnSide = nil, nil
+local _chargeWarnings = {}
 
 
 -- Opponent tracking (keyed by pawn path)
@@ -105,7 +110,7 @@ local function GetPlayerPawn()
                                     _pawnDetectionLogged = true
                                     print("[AE] Player pawn (2P via TargetPawn): " .. tpName:sub(1, 80))
                                 end
-                                return tp
+                                return tp, 1
                             end
                         end
                     else
@@ -114,7 +119,7 @@ local function GetPlayerPawn()
                             _pawnDetectionLogged = true
                             print("[AE] Player pawn (1P camera controller): " .. name:sub(1, 80))
                         end
-                        return p1Pawn
+                        return p1Pawn, 0
                     end
                 end
             end
@@ -132,9 +137,64 @@ local function GetPlayerPawn()
             _pawnDetectionLogged = true
             print("[AE] Player pawn (FALLBACK controller): " .. name:sub(1, 80))
         end
-        return pawn
+        return pawn, 0
     end
     return nil
+end
+
+-- Read-only native input context for the currently visible skill guide.
+-- Charge=11 is EKoratBattleKey::Charge in the current executable. These
+-- getters respect game bindings and have no Out tables or input side effects.
+local function MissingChargeContext(reason)
+    if not _chargeWarnings[reason] then
+        _chargeWarnings[reason] = true
+        print('[AE] Ki-charge guide unavailable: ' .. reason .. '; visible text remains readable')
+    end
+    return nil
+end
+
+function Battle.ReadKiChargeGuide()
+    -- PollHUD establishes and clears this baseline on battle/map changes.
+    if not _maxPlayerHP then return nil end
+    -- PollHUD refreshes ownership every100ms; reuse its validated reference
+    -- rather than add another global controller search to screen capture.
+    local pawn, side = _chargePawn, _chargePawnSide
+    if not IsValidRef(pawn) then return MissingChargeContext('current player reference') end
+    if (side ~= 0 and side ~= 1) or (_playerSide == '2P' and side ~= 1) then
+        return MissingChargeContext('current player side association')
+    end
+    local pawnPath = TryCall(pawn, 'GetFullName')
+    if type(pawnPath) ~= 'string' then return MissingChargeContext('current player identity') end
+
+    local function ReadGuide(hud, root)
+        if not IsValidRef(hud) then return nil end
+        if root then return TryCall(hud, 'GetSkillGuideSetOfPlayer', side) end
+        return H.TryGetProperty(hud, side == 1 and 'P2SkillGuideWidget' or 'P1SkillGuideWidget')
+    end
+    local guide = ReadGuide(_chargeHUD, _chargeHUDRoot)
+    if not IsValidRef(guide) then
+        local hud = H.GetCachedFirstOf('SSMainGameHUDWidget')
+        guide = ReadGuide(hud, false)
+        if IsValidRef(guide) then _chargeHUD, _chargeHUDRoot = hud, false end
+    end
+    if not IsValidRef(guide) then
+        -- The alternative native HUD root exposes the same indexed getter.
+        local root = H.GetCachedFirstOf('SSMainGameHUDWidgetRoot')
+        guide = ReadGuide(root, true)
+        if IsValidRef(guide) then _chargeHUD, _chargeHUDRoot = root, true end
+    end
+    if not IsValidRef(guide) then return MissingChargeContext('native skill-guide pointer') end
+    local guidePath = TryCall(guide, 'GetFullName')
+    local held = TryCall(pawn, 'IsBattleKeyPressed', 11)
+    if type(guidePath) ~= 'string' then return MissingChargeContext('native skill-guide identity') end
+    if type(held) ~= 'boolean' then return MissingChargeContext('native Charge-key getter') end
+    local holdTime = TryCall(pawn, 'GetBattleKeyHoldTime', 11)
+    if type(holdTime) ~= 'number' or holdTime ~= holdTime or holdTime < 0 or holdTime == math.huge then
+        MissingChargeContext('native Charge hold timer')
+        holdTime = nil
+    end
+    return {pawn = pawnPath, guide = guidePath, held = held, holdTime = holdTime,
+        side = side == 1 and '2P' or '1P'}
 end
 
 local function ReadGauges(pawn)
@@ -316,7 +376,8 @@ end
 --- Poll battle HUD values and announce significant changes.
 --- Called from the 100ms poll loop.
 function Battle.PollHUD(Speak, SpeakQueued)
-    local pawn = GetPlayerPawn()
+    local pawn, side = GetPlayerPawn()
+    _chargePawn, _chargePawnSide = pawn, side
     if not pawn then
         -- Pawn briefly nil during animations/events — don't reset tracking state.
         -- All state resets only on map transition (Battle.Reset).
@@ -675,6 +736,9 @@ function Battle.SetResetCallback(callback)
 end
 
 function Battle.Reset()
+    _chargeHUD, _chargeHUDRoot = nil, false
+    _chargePawn, _chargePawnSide = nil, nil
+    _chargeWarnings = {}
     _introAnnounced = false
     _resultAnnounced = false
     _inBattle = false

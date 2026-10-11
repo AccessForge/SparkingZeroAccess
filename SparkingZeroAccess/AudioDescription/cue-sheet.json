@@ -1,0 +1,400 @@
+{
+  "films": [
+    {
+      "movie": "Korat_OP2_1K_CP.usm",
+      "aliases": [
+        "Korat_OP2_2K_CP.usm",
+        "Korat_OP2_4K_CP.usm"
+      ],
+      "title": "Post-tutorial opening",
+      "fps": 30,
+      "totalFrames": 2557,
+      "polling_margin": 0.3,
+      "cues": [
+        {
+          "id": "op2-01",
+          "start": 1.6,
+          "end": 7.3,
+          "text": "In a rocky canyon, Goku faces Jiren.",
+          "duration": 3.12,
+          "source_sha256": "e8ebeecdc6ba502d894d19fd241a1eadce28269d93bd8cb96ee097dac609ad6f",
+          "file": "AudioDescription/op2-01.wav",
+          "sha256": "fade856b435bf7fb7f7d086e8849276f403947222e9547657933c6fa398833ad"
+        },
+        {
+          "id": "op2-02",
+          "start": 7.5,
+          "end": 11.0,
+          "text": "Goku erupts in blue light.",
+          "duration": 2.16,
+          "source_sha256": "424e2973fd8144ddea7c02140b2ecc1c685b4d094670a6595f1664d77ac2b6e6",
+          "file": "AudioDescription/op2-02.wav",
+          "sha256": "64cdd8e2783f76cf14b8a3ef165d2c362dc0f0f3e31e82ecd01dd2f31ef7d5d4"
+        },
+        {
+          "id": "op2-03",
+          "start": 11.1,
+          "end": 16.7,
+          "text": "They fly at each other, trading punches.",
+          "duration": 2.88,
+          "source_sha256": "5593a98f56d843f18def6bb18b14b27805be90c8f16fe481e34b71c775733c71",
+          "file": "AudioDescription/op2-03.wav",
+          "sha256": "2c5d13233525d9fc60e34bd8855a55e23c109f3da992410a6eaf1292f016e188"
+        },
+        {
+          "id": "op2-04",
+          "start": 17.0,
+          "end": 19.5,
+          "text": "Jiren throws Goku.",
+          "duration": 2.0,
+          "source_sha256": "e3a02d5430da20baecc5f0390266d55f77d3e3cdc0c59c506414156a1c463e0f",
+          "file": "AudioDescription/op2-04.wav",
+          "sha256": "a8802c2c571398bc7349f7fb13a585e5510d278912ee366b5a4f95c9f88f90ee"
+        },
+        {
+          "id": "op2-05",
+          "start": 19.6,
+          "end": 23.35,
+          "text": "Goku Black, Baby, and Frieza.",
+          "duration": 3.44,
+          "source_sha256": "0a29a1d448934084647251ebb4382ee4c7a7223d21d8dfa2eac0ec790db74c1c",
+          "file": "AudioDescription/op2-05.wav",
+          "sha256": "ae3845785a75a8f4d6db8aba1d6ac99ff7ec0bdf74a7c57d00cdca0edabc9759"
+        },
+        {
+          "id": "op2-06",
+          "start": 23.5,
+          "end": 26.7,
+          "text": "Broly flares with green energy.",
+          "duration": 2.64,
+          "source_sha256": "bba097842840f63bcc2d2242d4f19fe76dbc1eb6fe419a521bb5c0e950f9147d",
+          "file": "AudioDescription/op2-06.wav",
+          "sha256": "fdd001f374b0e1729d6934b343a0a2b2ed0cf594810b068b291d5bd70b8199b2"
+        },
+        {
+          "id": "op2-07",
+          "start": 26.85,
+          "end": 31.5,
+          "text": "He strikes Goku, then clashes with Jiren.",
+          "duration": 3.12,
+          "source_sha256": "a3cd0d6702a6aa04fd8ec1e1e860efa3678208b23502875dbd67b1f23e43dbaf",
+          "file": "AudioDescription/op2-07.wav",
+          "sha256": "8adbc9dd199e8e979ad4f7f6649ef01cf0243c86c4b4e39c4b1c50760dd5d713"
+        },
+        {
+          "id": "op2-08",
+          "start": 31.9,
+          "end": 35.3,
+          "text": "Trunks flies alongside Vegeta.",
+          "duration": 2.8,
+          "source_sha256": "bb5fcbbe699647ea85a945e00ea4a426184b8b7ab023923a6d0ef4388dbbf2af",
+          "file": "AudioDescription/op2-08.wav",
+          "sha256": "3859214237982a642d2e0d2500e1f76031f96613941c4ce1af6c72baa5c9c30e"
+        },
+        {
+          "id": "op2-09",
+          "start": 35.45,
+          "end": 39.7,
+          "text": "Vegeta trades energy blasts with Baby.",
+          "duration": 3.28,
+          "source_sha256": "96b3c9983466d933aea98813ddc3278d96ec5aec456309025bad85fb969095ba",
+          "file": "AudioDescription/op2-09.wav",
+          "sha256": "3fb232cbc1e32ce6bc05f21cc4f67abbf83dfe4573d5cfdc5608acef3f566013"
+        },
+        {
+          "id": "op2-10",
+          "start": 39.9,
+          "end": 46.8,
+          "text": "Goku Black attacks Trunks. Gohan intervenes with a kick.",
+          "duration": 4.16,
+          "source_sha256": "fff131ca4752cd907886d1d960fef42f98ff3e9e5c8ef39014e8f75a3c5e1657",
+          "file": "AudioDescription/op2-10.wav",
+          "sha256": "613030ebe1963ebc329e071638799524fb73b1a00176ac17f59f95d42a2ca709"
+        },
+        {
+          "id": "op2-11",
+          "start": 48.4,
+          "end": 52.5,
+          "text": "Frieza aims at Gohan. Trunks knocks him away.",
+          "duration": 3.44,
+          "source_sha256": "6a28e2922b6d5bd36a4299c783c54a3e67a9376878736ab90b56165dbcfe42a4",
+          "file": "AudioDescription/op2-11.wav",
+          "sha256": "3273c2ac4b2525bec56682dcf051b90693a2159a535aa11969c922de4ecf2c55"
+        },
+        {
+          "id": "op2-12",
+          "start": 52.7,
+          "end": 56.5,
+          "text": "Broly slams Jiren into the rocks.",
+          "duration": 2.72,
+          "source_sha256": "87ecfb08d8590e8c00158e638fd921491e523c8c2cd05bed804246288dc2bb1d",
+          "file": "AudioDescription/op2-12.wav",
+          "sha256": "ffe87e32869a4df2ad582bb8086970d2e10558c1ea4d4532233bc5f9ad6b1673"
+        },
+        {
+          "id": "op2-13",
+          "start": 57.6,
+          "end": 60.8,
+          "text": "White light surrounds Goku.",
+          "duration": 2.32,
+          "source_sha256": "f3bdb27b999507987e8ded508e0a77427c69da945a6447b1dd66c1cdf499b88b",
+          "file": "AudioDescription/op2-13.wav",
+          "sha256": "0381a9bbecefe61d20ba420dbbe03d40c3c606fc23c55dcb680d41542db4bb59"
+        },
+        {
+          "id": "op2-14",
+          "start": 63.7,
+          "end": 66.0,
+          "text": "His hair is silver.",
+          "duration": 1.76,
+          "source_sha256": "098d72f9a968afb9e1557227af0cda9d2fbbc993a8880ad5272d3ad0a38d145d",
+          "file": "AudioDescription/op2-14.wav",
+          "sha256": "80bb50d7f62f51ab85c03b55fe1c1511a3a3c7d239a22239c888019298891818"
+        },
+        {
+          "id": "op2-15",
+          "start": 66.1,
+          "end": 71.55,
+          "text": "Trunks, Gohan, and Vegeta power up beside him.",
+          "duration": 3.92,
+          "source_sha256": "9ad5ba3e22dcdd04e1fc11f0c093560f1a50abd8debed4f0058a889087a5feb0",
+          "file": "AudioDescription/op2-15.wav",
+          "sha256": "12584a49d716036a218ecd4587a62dba104e8fb3d4bd7a34c99cd21b0d9bd589"
+        },
+        {
+          "id": "op2-16",
+          "start": 71.7,
+          "end": 77.8,
+          "text": "The fighters charge, exchanging blows across the canyon.",
+          "duration": 4.24,
+          "source_sha256": "8286ea50ccf77eaa7efdf0cdd8263925d7b780ce2caf6fe19047eed8f644b48e",
+          "file": "AudioDescription/op2-16.wav",
+          "sha256": "bdabafeca89733a24753bdf24ac9ed33dca6c98b3fc84d75e9512c356a9ae11e"
+        },
+        {
+          "id": "op2-17",
+          "start": 78.1,
+          "end": 81.9,
+          "text": "Goku and Broly fire energy beams.",
+          "duration": 2.96,
+          "source_sha256": "8ffb85946458e10282a0b7bbb34c35a85911a6227f66f3e2ee27722691d3b47f",
+          "file": "AudioDescription/op2-17.wav",
+          "sha256": "9c299f7a066abc12ab7e7815a14fc39fe1082be3956ad0b3cd81d7ba81d18b54"
+        },
+        {
+          "id": "op2-18",
+          "start": 82.05,
+          "end": 85.23,
+          "text": "An explosion engulfs the canyon.",
+          "duration": 2.56,
+          "source_sha256": "139a3aef011895d09d7e66fceb791c2eb93ea92911c650f3d28ad013dcb21d95",
+          "file": "AudioDescription/op2-18.wav",
+          "sha256": "599527715464643a836ad24dc13938544d00bd0fbdd8bca031b90e36438ba54e"
+        }
+      ]
+    },
+    {
+      "movie": "Korat_OP3_1K_CP.usm",
+      "aliases": [
+        "Korat_OP3_2K_CP.usm",
+        "Korat_OP3_4K_CP.usm"
+      ],
+      "title": "Opening movie",
+      "fps": 30,
+      "totalFrames": 2717,
+      "polling_margin": 0.3,
+      "cues": [
+        {
+          "id": "op3-01",
+          "start": 0.6,
+          "end": 4.8,
+          "text": "Storm clouds loom over a rocky wasteland.",
+          "duration": 3.28,
+          "source_sha256": "8ee31afb8c0484a3803d21feef9fa3fbeeed3eeb56ad5c25699957b69d754588",
+          "file": "AudioDescription/op3-01.wav",
+          "sha256": "03c58badc4761ba99be264e64cb752c6b13c10cbde0b602c2f4c3caa6ae5696f"
+        },
+        {
+          "id": "op3-02",
+          "start": 5.0,
+          "end": 9.7,
+          "text": "Goku and his allies face their enemies.",
+          "duration": 3.44,
+          "source_sha256": "e3498455793fd7b57cf302d2142479e59321d195bd0ac7279a93678a1036cd45",
+          "file": "AudioDescription/op3-02.wav",
+          "sha256": "18757e29889f20903d072a55b272272c06f43f0f902beeafe5ba1ebec8f79bbd"
+        },
+        {
+          "id": "op3-03",
+          "start": 10.0,
+          "end": 12.5,
+          "text": "Goku glows blue.",
+          "duration": 2.0,
+          "source_sha256": "dd3de7b678eeb47c7e3f3511a27bdf3c719841c1626ceb5b95d8e479437253c4",
+          "file": "AudioDescription/op3-03.wav",
+          "sha256": "07cfb1f2907599827a7b7010afff54535c2bf1110a98cf4dd1193f1d48303068"
+        },
+        {
+          "id": "op3-04",
+          "start": 13.0,
+          "end": 16.8,
+          "text": "Dragon Ball: Sparking! Zero.",
+          "duration": 1.84,
+          "source_sha256": "3030f993771644df5be074a7dd211bf4f72f1f1f391b6d78c909cc47f833549f",
+          "file": "AudioDescription/op3-04.wav",
+          "sha256": "30596f67cb7b6d44ac2af47240b2b30e19725a7cf5595c111787077e05b1f5b8"
+        },
+        {
+          "id": "op3-05",
+          "start": 18.5,
+          "end": 21.7,
+          "text": "The fighters charge and collide.",
+          "duration": 2.56,
+          "source_sha256": "a5d221e72ad5d08076e0f2aa527e2fe71b06f9d4e579632a26fe30dd2f6fbe89",
+          "file": "AudioDescription/op3-05.wav",
+          "sha256": "a431fc636ab6241985cd2e9adca900d191ed9586907308ff30478ef7c6ad0b93"
+        },
+        {
+          "id": "op3-06",
+          "start": 22.0,
+          "end": 28.9,
+          "text": "A rapid montage of strikes and energy blasts.",
+          "duration": 3.68,
+          "source_sha256": "0538d54864753eaf2909a9a2d0cbd225e3982dcc5bcc5cbc76a42039e2bd39ec",
+          "file": "AudioDescription/op3-06.wav",
+          "sha256": "229ed30afd71d269288afc7735c19444b0a16ebf95b84ffb3e65ffd8485eff69"
+        },
+        {
+          "id": "op3-07",
+          "start": 31.8,
+          "end": 35.1,
+          "text": "Fireballs and blasters light the battlefield.",
+          "duration": 2.64,
+          "source_sha256": "8821a9a49336e232e0bf1c01bd3489df4662f266b9ce30ccd84df624161147da",
+          "file": "AudioDescription/op3-07.wav",
+          "sha256": "85b35063313a914418c12e8a916dab011363d1cad5016ee6142da35fa7bd3d8b"
+        },
+        {
+          "id": "op3-08",
+          "start": 35.3,
+          "end": 37.25,
+          "text": "Jaco poses.",
+          "duration": 1.12,
+          "source_sha256": "a9ce64980e40da1de753b9d140766474ee5c27909ea4e5387df99bae8d8078bf",
+          "file": "AudioDescription/op3-08.wav",
+          "sha256": "63d2f9f928ba3cc7492302077c8d007be0b74331af1c04b5cea829b727cd01bd"
+        },
+        {
+          "id": "op3-09",
+          "start": 40.05,
+          "end": 42.95,
+          "text": "Pan, Trunks and Goku attack.",
+          "duration": 2.4,
+          "source_sha256": "cb8f4822aaecca980e331c1257d246540583d42524ad69c600881cec78bbd0f2",
+          "file": "AudioDescription/op3-09.wav",
+          "sha256": "7996f79cce3d5d83e1e8745922b95022a976fcbe24462ffbd65fc78c88aff06e"
+        },
+        {
+          "id": "op3-10",
+          "start": 44.8,
+          "end": 46.8,
+          "text": "Goku charges.",
+          "duration": 1.28,
+          "source_sha256": "5952aaeaeff6d593cc0eb11bb533b3a14e584587eb7909c131176474872139a8",
+          "file": "AudioDescription/op3-10.wav",
+          "sha256": "fe33681b3acb46d08706c7b1dab5f09cb3a3f715d2914a02d3f1e4430177988d"
+        },
+        {
+          "id": "op3-11",
+          "start": 46.9,
+          "end": 49.0,
+          "text": "Piccolo glows.",
+          "duration": 1.44,
+          "source_sha256": "adab5b5b0efdb670c3b1040638a9cf36a191a8dd096a669f7588c166ada39e64",
+          "file": "AudioDescription/op3-11.wav",
+          "sha256": "b8452540912771c9bd968c8cc0a9beea95f1d62ba0011c387aeb27718af91556"
+        },
+        {
+          "id": "op3-12",
+          "start": 52.2,
+          "end": 54.3,
+          "text": "Three fighters fire.",
+          "duration": 1.6,
+          "source_sha256": "88e98bb9f9d5737cb240057c6a27d20cae050a43844215a2bf3a4a82f935990c",
+          "file": "AudioDescription/op3-12.wav",
+          "sha256": "3a689dbdf5504a8f9bf3bed622fa37b311b3e70bce61729bf4c35a20288cea9a"
+        },
+        {
+          "id": "op3-13",
+          "start": 54.4,
+          "end": 60.0,
+          "text": "Vegeta and Goku battle Broly across a starry sky.",
+          "duration": 3.92,
+          "source_sha256": "25b801e0ee4a19d5f9a512ce12a29e990b6de25baf2e238727f9b41af86420f6",
+          "file": "AudioDescription/op3-13.wav",
+          "sha256": "3e0bd54ffb2b0f32b8dfc887c1dfaf0ec0a8b0e5228167486a59ae40a3e0f41e"
+        },
+        {
+          "id": "op3-14",
+          "start": 60.1,
+          "end": 64.1,
+          "text": "Frieza strikes Goku and fires a crimson beam.",
+          "duration": 3.68,
+          "source_sha256": "c089eed6a93a47efbcb962d38b5b3b489c9bb6caa4b71917d030be3298d7facb",
+          "file": "AudioDescription/op3-14.wav",
+          "sha256": "70ad43713cd2c089609d59741f2f313bf72658c4f8ebc02fc7d6efc6785b8d2b"
+        },
+        {
+          "id": "op3-15",
+          "start": 64.8,
+          "end": 67.4,
+          "text": "Bardock turns Super Saiyan.",
+          "duration": 2.0,
+          "source_sha256": "907458037fc03ccb2115a251b92ac124dbe740b26ac4cea98c669ade150852be",
+          "file": "AudioDescription/op3-15.wav",
+          "sha256": "9e9309a5160d69a3d428523a3908c45de5eb803b09191bce2b51eee3b67bc67a"
+        },
+        {
+          "id": "op3-16",
+          "start": 69.0,
+          "end": 71.55,
+          "text": "A child battles an android.",
+          "duration": 2.16,
+          "source_sha256": "802f681b5c59b26858ff272705dd2d32ec037b907ca34720c139b643cb1f1e2f",
+          "file": "AudioDescription/op3-16.wav",
+          "sha256": "8a83780073ef48f7ae673f97ae21ee554acd2e52d3a564542a99fad0f8f2406e"
+        },
+        {
+          "id": "op3-17",
+          "start": 73.8,
+          "end": 75.65,
+          "text": "Trunks strikes.",
+          "duration": 1.44,
+          "source_sha256": "7e7102847331c24fa7ccbe0e93fa65bc2719dc2604cca465fb32c5ed305952ca",
+          "file": "AudioDescription/op3-17.wav",
+          "sha256": "79888ea6eaa80ddc60d6e57f085aa94b2585611674d34240a896edf2c7b20231"
+        },
+        {
+          "id": "op3-19",
+          "start": 80.4,
+          "end": 84.4,
+          "text": "Goku and Vegeta charge alongside their allies.",
+          "duration": 3.6,
+          "source_sha256": "8c6e3d869a891bb19fb4613e2b974ed442d78935a8cc1c94b765fdc8dc0d3ced",
+          "file": "AudioDescription/op3-19.wav",
+          "sha256": "b0bd65110d5fc64db215e37263a9999203fb942b69fa6b6024a9cd6817d253a8"
+        },
+        {
+          "id": "op3-20",
+          "start": 86.8,
+          "end": 90.5,
+          "text": "Beams clash and explode in white light.",
+          "duration": 2.72,
+          "source_sha256": "0b80f5d3600457a5578af1a12d3780de7fbe8878bf0178a64e6434afddd1a0a0",
+          "file": "AudioDescription/op3-20.wav",
+          "sha256": "aa5d158e828c7ec49b4593224707d2dcfb8110a18ab5cf5c242a89b95bb9ed71"
+        }
+      ]
+    }
+  ]
+}
