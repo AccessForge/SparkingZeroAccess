@@ -37,3 +37,9 @@ speech_bridge/*.dll
 # Zips (except deps/)
 *.zip
 !deps/*.zip
+
+# Local reader diagnostics and preferences
+AE_debug/
+SparkingZeroAccess-subtitles.ini
+audio_bridge/audio_bridge.vcxproj
+__pycache__/

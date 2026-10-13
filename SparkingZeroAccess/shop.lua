@@ -15,6 +15,8 @@
 ]]
 
 local H = require("helpers")
+local FindAllOf = H.FindAllOf
+local FindFirstOf = H.FindFirstOf
 local TryCall = H.TryCall
 local TryGetProperty = H.TryGetProperty
 local IsValidRef = H.IsValidRef

@@ -11,6 +11,8 @@
 ]]
 
 local H = require("helpers")
+local FindAllOf = H.FindAllOf
+local FindFirstOf = H.FindFirstOf
 local TryCall = H.TryCall
 local GetWidgetName = H.GetWidgetName
 local GetClassName = H.GetClassName
@@ -114,7 +116,8 @@ function SkillList.ReadDetails()
                     if cellType == "XL" then
                         descText = text:gsub("\n", " "):gsub("%s+", " ")
                     else
-                        table.insert(costParts, text:gsub("\n", " "):gsub("%s+", " "))
+                        local cleanedCost = text:gsub("\n", " "):gsub("%s+", " ")
+                        table.insert(costParts, cleanedCost)
                     end
                 end
             end

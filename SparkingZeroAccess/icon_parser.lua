@@ -8,7 +8,7 @@ local IconParser = {}
 -- Keyboard special key IDs (Key_XX)
 local KeyNames = {
     Key_16 = "Space",
-    Key_19 = "Escape",
+    Key_19 = "Tab", -- verified against the live Options glyph and keyboard input
     Key_20 = "Backspace",
     Key_26 = "Left Shift",
     Key_34 = "Left Arrow",
@@ -28,8 +28,8 @@ local PS4Names = {
 
 -- PlayStation button IDs (Pad_XX, PS5 tables — also used as fallback for PS4)
 local PSNames = {
-    Pad_00 = "Touchpad",
-    Pad_01 = "Options",
+    Pad_00 = "Options",
+    Pad_01 = "Touchpad",
     Pad_02 = "Circle",
     Pad_03 = "Cross",
     Pad_04 = "Square",
@@ -37,21 +37,29 @@ local PSNames = {
     Pad_06 = "L1",
     Pad_07 = "L2",
     Pad_08 = "L3",
+    Pad_09 = "Left Stick",
     Pad_10 = "R1",
     Pad_11 = "R2",
     Pad_12 = "R3",
+    Pad_13 = "Right Stick",
     Pad_14 = "Left Stick Up",
     Pad_15 = "Left Stick Right",
     Pad_16 = "Left Stick Down",
     Pad_17 = "Left Stick Left",
-    Pad_18 = "D-Pad Up",
-    Pad_19 = "D-Pad Right",
-    Pad_20 = "D-Pad Down",
-    Pad_21 = "D-Pad Left",
-    Pad_22 = "Right Stick Up",
-    Pad_23 = "Right Stick Right",
-    Pad_24 = "Right Stick Down",
-    Pad_25 = "Right Stick Left",
+    Pad_18 = "Right Stick Up",
+    Pad_19 = "Right Stick Right",
+    Pad_20 = "Right Stick Down",
+    Pad_21 = "Right Stick Left",
+    Pad_22 = "D-Pad Up", -- native tag builder shares key ids with XSX
+    Pad_23 = "D-Pad Right",
+    Pad_24 = "D-Pad Down",
+    Pad_25 = "D-Pad Left",
+    Pad_26 = "Left Stick Horizontal",
+    Pad_27 = "Left Stick Vertical",
+    Pad_28 = "Right Stick Horizontal",
+    Pad_29 = "Right Stick Vertical",
+    Pad_30 = "Touchpad Horizontal",
+    Pad_31 = "Touchpad Vertical",
     -- lowercase variants (game uses both casings)
     pad_02 = "Circle",
     pad_04 = "Square",
@@ -60,8 +68,8 @@ local PSNames = {
 
 -- Xbox button IDs (same Pad_XX indices, different labels)
 local XboxNames = {
-    Pad_00 = "View",
-    Pad_01 = "Menu",
+    Pad_00 = "Menu",
+    Pad_01 = "View",
     Pad_02 = "B",
     Pad_03 = "A",
     Pad_04 = "X",
@@ -69,21 +77,27 @@ local XboxNames = {
     Pad_06 = "LB",
     Pad_07 = "LT",
     Pad_08 = "LS",
+    Pad_09 = "Left Stick", -- observed L_Stick_0 glyph in the controls diagram
     Pad_10 = "RB",
     Pad_11 = "RT",
     Pad_12 = "RS",
+    Pad_13 = "Right Stick", -- observed R_Stick_0 glyph in the controls diagram
     Pad_14 = "Left Stick Up",
     Pad_15 = "Left Stick Right",
     Pad_16 = "Left Stick Down",
     Pad_17 = "Left Stick Left",
-    Pad_18 = "D-Pad Up",
-    Pad_19 = "D-Pad Right",
-    Pad_20 = "D-Pad Down",
-    Pad_21 = "D-Pad Left",
-    Pad_22 = "Right Stick Up",
-    Pad_23 = "Right Stick Right",
-    Pad_24 = "Right Stick Down",
-    Pad_25 = "Right Stick Left",
+    Pad_18 = "Right Stick Up",
+    Pad_19 = "Right Stick Right",
+    Pad_20 = "Right Stick Down",
+    Pad_21 = "Right Stick Left",
+    Pad_22 = "D-Pad Up", -- Transform prompt, confirmed with the player's input
+    Pad_23 = "D-Pad Right",
+    Pad_24 = "D-Pad Down",
+    Pad_25 = "D-Pad Left",
+    Pad_26 = "Left Stick Horizontal",
+    Pad_27 = "Left Stick Vertical",
+    Pad_28 = "Right Stick Horizontal",
+    Pad_29 = "Right Stick Vertical",
     -- lowercase variants
     pad_02 = "B",
     pad_04 = "X",
@@ -96,7 +110,7 @@ local function ParseIcon(fullMatch, id, table_name, text)
         return text:gsub("\\r\\n", " "):gsub("\\n", " ")
     end
 
-    local upperTable = table_name:upper()
+    local upperTable = (table_name or ""):upper()
     
     if upperTable == "WINDOWS" or upperTable == "KEYBOARD" then
         return KeyNames[id] or id
@@ -121,17 +135,15 @@ end
 function IconParser.Parse(richText)
     if not richText or richText == "" then return richText end
 
-    -- Replace icon tags that have a text attribute
-    local result = richText:gsub(
-        '<icon id="([^"]*)" table="([^"]*)" text="([^"]*)"[^/]*/>',
-        function(id, tbl, text) return ParseIcon(nil, id, tbl, text) end
-    )
-
-    -- Replace icon tags without text attribute
-    result = result:gsub(
-        '<icon id="([^"]*)" table="([^"]*)"/>',
-        function(id, tbl) return ParseIcon(nil, id, tbl, nil) end
-    )
+    -- Attribute order and spacing are not part of the icon's meaning. Separate
+    -- adjacent glyphs so Q followed by E is not pronounced as one invented key.
+    local result = richText:gsub('<icon%s+([^>]*)/>', function(attributes)
+        local values = {}
+        for key, value in attributes:gmatch('([%w_]+)%s*=%s*"([^"]*)"') do values[key] = value end
+        for key, value in attributes:gmatch("([%w_]+)%s*=%s*'([^']*)'") do values[key] = value end
+        local label = ParseIcon(nil, values.id or 'Unknown button', values['table'], values.text)
+        return ' ' .. label .. ' '
+    end)
 
     -- Clean up whitespace
     result = result:gsub("%s+", " ")

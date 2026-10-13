@@ -6,6 +6,9 @@
 
     IDs match texture pattern: T_UI_ChThumbP1_XXXX_YY_ZZ
     where XXXX_YY is the character ID used as key here.
+
+    Names here are a fallback: chara_roster.lua reads the game's own character
+    record first. DP values are only available from this table.
 ]]
 
 local CharaNames = {}
@@ -268,6 +271,14 @@ CharaNames.Data = {
     ["8057_00"] = {"Belmod", nil},
     ["8063_00"] = {"Videl (Super)", nil},
     ["8077_00"] = {"Gohan (Raditz Saga)", nil},
+    -- Not in the spreadsheet: names shown by the game's own name plate for
+    -- these portraits (live session 2026-10-04, exe 6DB7002A). DP unknown.
+    ["0610_00"] = {"Salza", nil},
+    ["0640_00"] = {"Zangya", nil},
+    ["0690_00"] = {"Nuova Shenron (GT)", nil},
+    ["3270_00"] = {"Vegeta (GT)", nil},
+    ["3280_00"] = {"Trunks (GT)", nil},
+    ["3360_00"] = {"Chilled", nil},
 }
 
 --- Look up character name by ID. Returns name or nil.

@@ -15,6 +15,9 @@ local DebugTools = {}
 -- === HELPERS ===
 
 local H = require("helpers")
+local FindAllOf = H.FindAllOf
+local FindFirstOf = H.FindFirstOf
+local GameThread = require("game_thread")
 local TryCall = H.TryCall
 local TryGetProperty = H.TryGetProperty
 local GetWidgetName = H.GetWidgetName
@@ -49,7 +52,9 @@ end
 local _dumpActive = false
 local _lastDumpFocus = nil     -- last focused widget name
 local _lastDumpClassKey = nil  -- hash of visible class set
+local _lastDumpValueKey = nil  -- image-backed settings may change without focus moving
 local _dumpEntryCount = 0
+local BuildLanguageValueDump
 
 local function BuildDumpEntry()
     local lines = {}
@@ -91,13 +96,23 @@ local function BuildDumpEntry()
     -- Build change detection key
     local focusName = focused and GetWidgetName(focused) or "(none)"
     local classKey = table.concat(classOrder, "|") .. "#" .. totalVisible
+    local valueLines = {}
+    if focused and GetClassName(focused) == "WBP_OBJ_Option_List_013_Lang_C" then
+        BuildLanguageValueDump(focused, valueLines)
+    end
+    local valueDump = table.concat(valueLines, "\n")
+    -- Reflected delegate/soft-pointer wrappers get a new Lua address per read.
+    -- Their allocation addresses are not changes to a displayed setting.
+    local valueKey = valueDump:gsub("table: %x+", "table"):gsub("Userdata: %x+", "Userdata")
 
     -- Skip if nothing changed
-    if focusName == _lastDumpFocus and classKey == _lastDumpClassKey then
+    if focusName == _lastDumpFocus and classKey == _lastDumpClassKey
+        and valueKey == _lastDumpValueKey then
         return nil
     end
     _lastDumpFocus = focusName
     _lastDumpClassKey = classKey
+    _lastDumpValueKey = valueKey
 
     -- === Header ===
     _dumpEntryCount = _dumpEntryCount + 1
@@ -112,7 +127,7 @@ local function BuildDumpEntry()
         table.insert(lines, "Path: " .. focused:GetFullName())
 
         -- Subtree text
-        local focusedInstance = GetWidgetName(focused)
+        local focusedInstance = focused:GetFullName():match("^[^ ]+ (.+)$") .. "."
         local foundAny = false
         local allTB = FindAllOf("TextBlock")
         if allTB then
@@ -149,6 +164,11 @@ local function BuildDumpEntry()
         table.insert(lines, "(no widget has keyboard focus)")
     end
     table.insert(lines, "")
+    if #valueLines > 0 then
+        table.insert(lines, "--- Language Value Properties and Images ---")
+        table.insert(lines, valueDump)
+        table.insert(lines, "")
+    end
 
     -- === Visible Widget Classes (F5 equivalent) ===
     table.insert(lines, "--- Visible Widgets (" .. totalVisible .. " total, " .. #classOrder .. " classes) ---")
@@ -202,18 +222,28 @@ local function BuildDumpEntry()
     return table.concat(lines, "\n")
 end
 
+local cancelDump = nil
+local function SetScreenLogging(enabled)
+    local reader = package.loaded.screen_reader
+    if reader and type(reader.SetLogging) == 'function' then reader.SetLogging(enabled) end
+end
 local function StartDumpLoop()
+    if cancelDump then cancelDump() end
     _dumpActive = true
     _lastDumpFocus = nil
     _lastDumpClassKey = nil
+    _lastDumpValueKey = nil
+    SetScreenLogging(true)
 
     AppendDump("debug_dump.txt", "\n=== Dump Started " .. os.date("%Y-%m-%d %H:%M:%S") .. " ===\n\n")
 
-    LoopAsync(250, function()
+    cancelDump = GameThread.Every(250, "Debug dump", function()
         if not _dumpActive then return true end  -- stop loop
         local ok, entry = pcall(BuildDumpEntry)
         if ok and entry then
             AppendDump("debug_dump.txt", entry)
+        elseif not ok then
+            print("[AE-DBG] Continuous dump error: " .. tostring(entry))
         end
         return false  -- continue loop
     end)
@@ -221,6 +251,8 @@ end
 
 local function StopDumpLoop()
     _dumpActive = false
+    SetScreenLogging(false)
+    if cancelDump then cancelDump(); cancelDump = nil end
     AppendDump("debug_dump.txt", "=== Dump Stopped " .. os.date("%Y-%m-%d %H:%M:%S") .. " ===\n")
 end
 
@@ -889,9 +921,6 @@ end
 
 -- === OBJECT DUMPER (from ConsoleCommandsMod/dump_object.lua) ===
 
-local UClassStaticClass = StaticFindObject("/Script/CoreUObject.Class")
-local UScriptStructStaticClass = StaticFindObject("/Script/CoreUObject.ScriptStruct")
-
 local function SafeIsA(Property, TypeKey)
     if not TypeKey then return false end
     local ok, result = pcall(function() return Property:IsA(TypeKey) end)
@@ -991,6 +1020,72 @@ local function DumpObjectToLines(Object, lines)
             ObjectClass = super
         else
             break
+        end
+    end
+end
+
+-- The language selector draws its values as images. Read the focused instance's
+-- properties and brushes on the game thread; never infer a language from a key.
+BuildLanguageValueDump = function(widget, lines)
+    local fullName = TryCall(widget, "GetFullName")
+    local path = fullName and fullName:match("^[^ ]+ (.+)$")
+    if not path then return end
+    table.insert(lines, fullName)
+    DumpObjectToLines(widget, lines)
+
+    local function dumpArray(object, property, describe)
+        local array = TryGetProperty(object, property)
+        if not array then return end
+        table.insert(lines, "--- " .. property .. " entries ---")
+        local ok, err = pcall(function()
+            array:ForEach(function(index, value)
+                local kind = TryCall(value, "type")
+                if kind == "RemoteUnrealParam" or kind == "LocalUnrealParam" then value = value:get() end
+                local entryOk, description = pcall(describe, value)
+                table.insert(lines, tostring(index) .. ": " .. (entryOk and description or tostring(description)))
+            end)
+        end)
+        if not ok then table.insert(lines, "Array read failed: " .. tostring(err)) end
+    end
+    dumpArray(widget, "ItemEntries", function(entry)
+        return "Value1=" .. tostring(entry.Value1) .. " DisplayName=" .. entry.DisplayName:ToString()
+    end)
+    dumpArray(widget, "ImageTextureList", function(entry)
+        local directName = TryCall(entry, "GetFullName")
+        local texture = TryGetProperty(entry, "ImageTextures")
+        return "Object=" .. tostring(directName) .. " ImageNo=" .. tostring(TryGetProperty(entry, "ImageNo"))
+            .. " ImageTextures=" .. tostring(texture and TryCall(texture, "GetFullName"))
+    end)
+
+    local outer = TryCall(widget, "GetOuter")
+    local owner = outer and TryCall(outer, "GetOuter")
+    if owner and GetClassName(owner) == "WBP_Option_List_Language_C" then
+        table.insert(lines, "--- Language screen properties ---")
+        DumpObjectToLines(owner, lines)
+        dumpArray(owner, "InstallLangCode", function(value) return tostring(value) end)
+    end
+
+    table.insert(lines, "--- Focused row images ---")
+    local prefix = path .. "."
+    for _, img in ipairs(FindAllOf("Image") or {}) do
+        local imgFullName = TryCall(img, "GetFullName")
+        local imgPath = imgFullName and imgFullName:match("^[^ ]+ (.+)$")
+        if imgPath and imgPath:sub(1, #prefix) == prefix then
+            local ok, resource = pcall(function() return img.Brush.ResourceObject:GetFullName() end)
+            table.insert(lines, GetWidgetName(img) .. " resource=" .. (ok and resource or "(none)"))
+            -- IsVisible alone ignores hidden ancestors and inactive switcher
+            -- children. Preserve their state so the dump does not imply that
+            -- every image in the row is actually displayed.
+            local node = img
+            for _ = 1, 16 do
+                if not node or not H.IsValidRef(node) then break end
+                local detail = GetWidgetName(node) .. " visibility=" .. tostring(TryCall(node, "GetVisibility"))
+                if GetClassName(node) == "WidgetSwitcher" then
+                    detail = detail .. " activeIndex=" .. tostring(TryCall(node, "GetActiveWidgetIndex"))
+                end
+                table.insert(lines, "  " .. detail)
+                node = TryCall(node, "GetParent")
+            end
         end
     end
 end
@@ -1193,37 +1288,45 @@ function DebugTools.Init(SpeakFn)
 
     -- F5: Toggle continuous debug dump
     RegisterKeyBind(Key.F5, function()
-        if _dumpActive then
-            StopDumpLoop()
-            if SpeakFn then SpeakFn("Debug dump off", true) end
-            print("[AE-DBG] Continuous dump stopped")
-        else
-            StartDumpLoop()
-            if SpeakFn then SpeakFn("Debug dump on", true) end
-            print("[AE-DBG] Continuous dump started (250ms, change-only)")
-        end
+        GameThread.After(0, "Toggle debug dump", function()
+            if _dumpActive then
+                StopDumpLoop()
+                if SpeakFn then SpeakFn("Debug dump off", true) end
+                print("[AE-DBG] Continuous dump stopped")
+            else
+                StartDumpLoop()
+                if SpeakFn then SpeakFn("Debug dump on", true) end
+                print("[AE-DBG] Continuous dump started (250ms, change-only)")
+            end
+        end)
     end)
 
     -- F4: Character select dump
     RegisterKeyBind(Key.F4, function()
-        if SpeakFn then SpeakFn("Inspecting character select...", true) end
-        pcall(DumpCharaSelectInfo)
-        if SpeakFn then SpeakFn("Character select dump complete", true) end
+        GameThread.After(0, "Character debug dump", function()
+            if SpeakFn then SpeakFn("Inspecting character select...", true) end
+            local ok, err = pcall(DumpCharaSelectInfo)
+            if not ok then print("[AE-DBG] Character select dump error: " .. tostring(err)) end
+            if SpeakFn then SpeakFn(ok and "Character select dump complete" or "Character select dump failed", true) end
+        end)
     end)
 
     -- F3: Battle state dump
     RegisterKeyBind(Key.F3, function()
-        if SpeakFn then SpeakFn("Battle dump", true) end
-        local ok, err = pcall(DumpBattleGameState)
-        if not ok then
-            AppendDump("battle_state.txt", "--- ERROR: " .. tostring(err) .. " ---\n\n")
-            print("[AE-DBG] Battle state error: " .. tostring(err))
-        end
-        pcall(DumpBattleGauges)
-        if SpeakFn then SpeakFn("Battle dump complete", true) end
+        GameThread.After(0, "Battle debug dump", function()
+            if SpeakFn then SpeakFn("Battle dump", true) end
+            local ok, err = pcall(DumpBattleGameState)
+            if not ok then
+                AppendDump("battle_state.txt", "--- ERROR: " .. tostring(err) .. " ---\n\n")
+                print("[AE-DBG] Battle state error: " .. tostring(err))
+            end
+            local gaugesOk, gaugesErr = pcall(DumpBattleGauges)
+            if not gaugesOk then print("[AE-DBG] Battle gauges error: " .. tostring(gaugesErr)) end
+            if SpeakFn then SpeakFn(ok and gaugesOk and "Battle dump complete" or "Battle dump failed", true) end
+        end)
     end)
 
-    print("[AE-DBG] Debug tools loaded. F3=battle dump, F4=chara select, F5=toggle debug dump")
+    print("[AE-DBG] Debug tools loaded. F3=battle dump, F4=chara select, F5=toggle debug dump (language images enabled)")
 end
 
 return DebugTools
